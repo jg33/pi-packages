@@ -53,7 +53,7 @@ interface CapturedComponent {
 type PromptFactory = (
   tui: {
     requestRender: () => void;
-    terminal: { write(data: string): void };
+    terminal: { write(data: string): void; rows: number };
   },
   theme: ReturnType<typeof plainTheme>,
   keybindings: { matches(data: string, action: string): boolean },
@@ -97,7 +97,10 @@ function makeFakeView(
       });
       captured.done = done;
       captured.component = factory(
-        { requestRender: vi.fn(), terminal: { write: terminalWrite } },
+        {
+          requestRender: vi.fn(),
+          terminal: { write: terminalWrite, rows: 60 },
+        },
         plainTheme(),
         {
           matches: (data, action) =>

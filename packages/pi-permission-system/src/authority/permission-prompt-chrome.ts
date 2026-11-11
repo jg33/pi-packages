@@ -84,3 +84,22 @@ export function hintRow(
 ): string {
   return `${" ".repeat(BODY_INDENT)}${theme.fg(color, parts.join(" · "))}`;
 }
+
+/** Rows `frame` adds around its body, with one row of slack for a wrapped hint. */
+export const DECISION_FRAME_ROWS = 9;
+export const MIN_ASK_ROWS = 6;
+
+/**
+ * Rows the ask body may use so the frame and what sits below it (option rows,
+ * or the reason prompt/editor/error) still fit the terminal. A display bound
+ * only: core facts are exempt from the row budget in the renderer, and the
+ * complete view stays one keystroke away.
+ */
+export function askRowCap(
+  configuredMaxRows: number,
+  terminalRows: number,
+  bodyRowsBelowAsk: number,
+): number {
+  const room = terminalRows - DECISION_FRAME_ROWS - 1 - bodyRowsBelowAsk; // 1 = spacer under the ask
+  return Math.max(MIN_ASK_ROWS, Math.min(configuredMaxRows, room));
+}

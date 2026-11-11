@@ -33,6 +33,7 @@ import {
   type UnattributedDecision,
 } from "./permission-dialog";
 import {
+  askRowCap,
   BODY_INDENT,
   type ChromeTheme,
   frame,
@@ -261,6 +262,7 @@ export function presentInlinePermissionPrompt(
         },
         done,
         clock,
+        () => tui.terminal.rows,
       );
     },
     { overlay: false },
@@ -309,6 +311,7 @@ class PermissionPromptComponent implements Component {
     private readonly requestRender: () => void,
     private readonly done: (decision: UnattributedDecision) => void,
     private readonly clock: DialogClock | undefined,
+    private readonly getTerminalRows: () => number,
   ) {
     this.state = initialPromptState(config);
     this.reason = this.createReasonEditor();
@@ -360,13 +363,18 @@ class PermissionPromptComponent implements Component {
    * Rendered per frame rather than once, because the row budget is a function
    * of the width the host gives us, which a resize changes.
    */
-  private renderAsk(width: number): DialogView {
+  private renderAsk(width: number, bodyRowsBelowAsk: number): DialogView {
     const bodyWidth = Math.max(1, width - BODY_INDENT);
+    const maxRows = askRowCap(
+      this.budget.maxRows,
+      this.getTerminalRows(),
+      bodyRowsBelowAsk,
+    );
     return renderPromptDialog(
       this.payload,
       this.expanded
         ? completeViewBudget(bodyWidth)
-        : { ...this.budget, width: bodyWidth },
+        : { ...this.budget, maxRows, width: bodyWidth },
       (text) => this.theme.fg("warning", text),
     );
   }
@@ -485,7 +493,7 @@ class PermissionPromptComponent implements Component {
   }
 
   private renderDecision(width: number): string[] {
-    const ask = this.renderAsk(width);
+    const ask = this.renderAsk(width, visibleActions(this.config).length);
     const rows = visibleActions(this.config).map((action) => ({
       key: this.config.keys[action],
       label: this.labelFor(action),
@@ -527,7 +535,7 @@ class PermissionPromptComponent implements Component {
 
   private renderReason(width: number): string[] {
     const body = [
-      ...indentRows(this.renderAsk(width).lines),
+      ...indentRows(this.renderAsk(width, 3).lines), // 3 = prompt, editor, error
       "",
       ` ${this.theme.bold("Reason (required):")}`,
       // Exactly one row, whatever its length: the editor scrolls horizontally.

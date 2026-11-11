@@ -221,3 +221,59 @@ describe("scope step", () => {
     );
   });
 });
+
+describe("terminal-row-aware ask cap", () => {
+  it("keeps the options and hint on screen when a long ask meets a short terminal", () => {
+    const evidence = Array.from({ length: 40 }, (_, i) => ({
+      label: `path ${i}`,
+      text: `/very/long/path/${i}`,
+      detail: null,
+    }));
+    const m = mountPrompt({
+      view: NOW,
+      rows: 30,
+      payload: { ...bashPayload(), evidence },
+    });
+    const lines = m.render(100);
+    expect(lines.length).toBeLessThanOrEqual(30);
+    const text = flat(lines);
+    expect(text).toContain("n. No");
+    expect(text).toContain("Enter to select");
+    expect(text).toContain("Ctrl+O for full request");
+  });
+
+  it("leaves the expanded (Ctrl+O) view uncapped, so the complete request stays reachable", () => {
+    const evidence = Array.from({ length: 40 }, (_, i) => ({
+      label: `path ${i}`,
+      text: `/very/long/path/${i}`,
+      detail: null,
+    }));
+    const m = mountPrompt({
+      view: NOW,
+      rows: 30,
+      expandKey: "\x0f",
+      payload: { ...bashPayload(), evidence },
+    });
+    m.type("\x0f");
+    expect(flat(m.render(100))).toContain("/very/long/path/39");
+  });
+
+  it("does not shrink the ask on a tall terminal", () => {
+    const evidence = Array.from({ length: 40 }, (_, i) => ({
+      label: `path ${i}`,
+      text: `/p/${i}`,
+      detail: null,
+    }));
+    const tall = mountPrompt({
+      view: NOW,
+      rows: 200,
+      payload: { ...bashPayload(), evidence },
+    }).render(100).length;
+    const short = mountPrompt({
+      view: NOW,
+      rows: 30,
+      payload: { ...bashPayload(), evidence },
+    }).render(100).length;
+    expect(tall).toBeGreaterThan(short);
+  });
+});

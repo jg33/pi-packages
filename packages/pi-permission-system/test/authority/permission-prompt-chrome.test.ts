@@ -1,6 +1,7 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import {
+  askRowCap,
   borderRow,
   frame,
   hintRow,
@@ -91,5 +92,11 @@ describe("permission prompt chrome", () => {
     expect(hintRow(fakeTheme, ["Press y again to approve."], "warning")).toBe(
       ` ${fakeTheme.fg("warning", "Press y again to approve.")}`,
     );
+  });
+
+  it("askRowCap leaves room for the frame and the option rows, never below the floor, never above the configured cap", () => {
+    expect(askRowCap(24, 30, 4)).toBe(16); // 30 - 9 frame - 1 spacer - 4 options
+    expect(askRowCap(24, 200, 4)).toBe(24);
+    expect(askRowCap(24, 10, 4)).toBe(6);
   });
 });

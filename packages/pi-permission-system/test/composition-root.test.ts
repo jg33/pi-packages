@@ -2447,7 +2447,7 @@ describe("configured prompt preferences reach the inline dialog", () => {
           factory: (
             tui: {
               requestRender: () => void;
-              terminal: { write(data: string): void };
+              terminal: { write(data: string): void; rows: number };
             },
             theme: {
               fg(color: string, text: string): string;
@@ -2466,6 +2466,7 @@ describe("configured prompt preferences reach the inline dialog", () => {
                   write: (data): void => {
                     terminalWrites.push(data);
                   },
+                  rows: 60,
                 },
               },
               {
