@@ -165,6 +165,7 @@ describe("decision step — ask_user visual language", () => {
   it("still mounts inline", () => {
     expect(mountPrompt().custom).toHaveBeenCalledWith(expect.any(Function), {
       overlay: false,
+      blocked: { kind: "permission", message: "Permission Required" },
     });
   });
 });

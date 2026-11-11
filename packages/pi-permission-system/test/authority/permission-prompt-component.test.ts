@@ -205,7 +205,10 @@ describe("presentInlinePermissionPrompt", () => {
   it("renders inline (not as an overlay) with the request facts and hotkey labels", () => {
     const { view, captured } = makeFakeView(true);
     void presentInlinePermissionPrompt(view, "Permission Required", ASK);
-    expect(captured.options).toEqual({ overlay: false });
+    expect(captured.options).toEqual({
+      overlay: false,
+      blocked: { kind: "permission", message: "Permission Required" },
+    });
     const text = captured.component?.render(80).join("\n") ?? "";
     expect(text).toContain("tool : read");
     expect(text).toContain("path : /repo/secret.txt");
@@ -213,6 +216,19 @@ describe("presentInlinePermissionPrompt", () => {
     expect(text).toContain("No, provide reason");
     expect(text).toContain("y");
     expect(text).toContain("r");
+  });
+
+  it("opts into the blocked program status with kind permission and the dialog title", () => {
+    const { view, captured } = makeFakeView(true);
+    void presentInlinePermissionPrompt(view, "Permission Required", ASK);
+    const options = captured.options as {
+      blocked?: { kind?: string; message?: string };
+    };
+    expect(options.blocked?.kind).toBe("permission");
+    const message = options.blocked?.message ?? "";
+    expect(message.length).toBeGreaterThan(0);
+    expect(message).not.toMatch(/[\r\n]/);
+    expect(message).toBe("Permission Required");
   });
 
   it("renders the decision options in the model's display order", () => {

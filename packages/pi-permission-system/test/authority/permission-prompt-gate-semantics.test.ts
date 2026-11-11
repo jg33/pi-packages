@@ -355,6 +355,7 @@ describe("permission prompt gate semantics (characterization: must hold before A
     const m = mountPrompt();
     expect(m.custom).toHaveBeenCalledWith(expect.any(Function), {
       overlay: false,
+      blocked: { kind: "permission", message: "Permission Required" },
     });
   });
 });

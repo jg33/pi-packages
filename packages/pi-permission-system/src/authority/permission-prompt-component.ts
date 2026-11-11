@@ -57,7 +57,8 @@ import {
  * module is the thin adapter that renders the model's state to lines, maps raw
  * keystrokes to {@link PromptEvent}s, and resolves the `ctx.ui.custom` promise
  * with the committed {@link PermissionPromptDecision}. The component renders
- * inline (never as an overlay).
+ * inline (never as an overlay) and passes `blocked: { kind: "permission" }`
+ * so terminals report pi as waiting for a human while the dialog is open.
  */
 
 /** The subset of the session UI surface the inline dialog needs. */
@@ -265,7 +266,7 @@ export function presentInlinePermissionPrompt(
         () => tui.terminal.rows,
       );
     },
-    { overlay: false },
+    { overlay: false, blocked: { kind: "permission", message: title } },
   );
 }
 
