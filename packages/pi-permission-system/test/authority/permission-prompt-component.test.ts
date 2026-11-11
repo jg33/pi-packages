@@ -39,6 +39,9 @@ function plainTheme() {
     bg(_color: string, text: string) {
       return text;
     },
+    bold(text: string) {
+      return text;
+    },
   };
 }
 
@@ -165,8 +168,8 @@ function makeAsk(value = "/repo/secret.txt"): PromptPayload {
 
 const ASK = makeAsk();
 
-/** Title, blank separator, four decision options, blank, hint. */
-const DECISION_CHROME_ROWS = 8;
+/** Border, header chip, spacers, four decision options, border, hint — all but the ask. */
+const DECISION_CHROME_ROWS = 13;
 
 async function runPrompt(
   doublePressToConfirm: boolean,
@@ -189,7 +192,7 @@ async function runPrompt(
 /** The hotkeys of the decision step's option rows, in rendered order. */
 function decisionOptionKeys(captured: { component?: CapturedComponent }) {
   return (captured.component?.render(80) ?? [])
-    .map((line) => /^[ ▶] \((\w)\) /.exec(line)?.[1])
+    .map((line) => /^[❯ ] (\w)\. /.exec(line)?.[1])
     .filter((key) => key !== undefined);
 }
 
@@ -546,7 +549,7 @@ describe("presentInlinePermissionPrompt", () => {
       expect(lines.length).toBeLessThanOrEqual(
         DEFAULT_RENDER_BUDGET.maxRows + DECISION_CHROME_ROWS,
       );
-      expect(lines).toContain("subagent  : scout · session abc123");
+      expect(lines).toContain(" subagent  : scout · session abc123");
     });
 
     it("falls back to the select flow outside TUI mode", async () => {
@@ -679,7 +682,7 @@ describe("presentInlinePermissionPrompt", () => {
       void requestPermissionDecision(view, "Title", ASK);
 
       expect(captured.component?.render(200).at(-1)).toBe(
-        "↑/↓ move · enter confirm · esc deny · press a letter, then again to confirm · unanswered, denies in 60s",
+        " Enter to select · ↑/↓ to navigate · Esc to deny · Press a key, then again to confirm · unanswered, denies in 60s",
       );
     });
 
@@ -692,7 +695,7 @@ describe("presentInlinePermissionPrompt", () => {
       captured.component?.handleInput(ARROW_DOWN);
 
       expect(captured.component?.render(200).at(-1)).toBe(
-        "↑/↓ move · enter confirm · esc deny · press a letter, then again to confirm",
+        " Enter to select · ↑/↓ to navigate · Esc to deny · Press a key, then again to confirm",
       );
     });
 
@@ -701,7 +704,7 @@ describe("presentInlinePermissionPrompt", () => {
       void requestPermissionDecision(view, "Title", ASK);
 
       expect(captured.component?.render(200).at(-1)).toBe(
-        "↑/↓ move · enter confirm · esc deny · press a letter, then again to confirm",
+        " Enter to select · ↑/↓ to navigate · Esc to deny · Press a key, then again to confirm",
       );
     });
 
@@ -882,13 +885,13 @@ describe("presentInlinePermissionPrompt", () => {
         makeAsk("/repo/a/very/long/secret.txt"),
       );
       const bounded = captured.component?.render(120) ?? [];
-      expect(bounded).toContain("path : /repo/a/ve…");
-      expect(bounded.at(-1)).toContain("ctrl+o full request");
+      expect(bounded).toContain(" path : /repo/a/ve…");
+      expect(bounded.at(-1)).toContain("Ctrl+O for full request");
 
       captured.component?.handleInput(CTRL_O);
       const expanded = captured.component?.render(120) ?? [];
-      expect(expanded).toContain("path : /repo/a/very/long/secret.txt");
-      expect(expanded.at(-1)).toContain("ctrl+o collapse");
+      expect(expanded).toContain(" path : /repo/a/very/long/secret.txt");
+      expect(expanded.at(-1)).toContain("Ctrl+O to collapse");
       // The host's own tool expansion still follows the same keystroke (#642).
       expect(setToolsExpanded).toHaveBeenCalledWith(true);
 

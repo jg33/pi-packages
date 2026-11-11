@@ -33,6 +33,14 @@ import {
   type UnattributedDecision,
 } from "./permission-dialog";
 import {
+  BODY_INDENT,
+  type ChromeTheme,
+  frame,
+  hintRow,
+  indentRows,
+  optionRows,
+} from "./permission-prompt-chrome";
+import {
   initialPromptState,
   type PromptEvent,
   type PromptModelConfig,
@@ -189,10 +197,8 @@ function attributeToHuman(
 /** The width the `select`/`input` fallback renders against. */
 const FALLBACK_RENDER_WIDTH = 80;
 
-/** Minimal theme surface the dialog uses; satisfied by the real SDK theme. */
-interface PromptTheme {
-  fg(color: string, text: string): string;
-}
+/** The theme surface the dialog paints with; structurally satisfied by the SDK theme. */
+type PromptTheme = ChromeTheme;
 
 const DEFAULT_SESSION_LABEL = "Yes, for this session";
 
@@ -355,9 +361,12 @@ class PermissionPromptComponent implements Component {
    * of the width the host gives us, which a resize changes.
    */
   private renderAsk(width: number): DialogView {
+    const bodyWidth = Math.max(1, width - BODY_INDENT);
     return renderPromptDialog(
       this.payload,
-      this.expanded ? completeViewBudget(width) : { ...this.budget, width },
+      this.expanded
+        ? completeViewBudget(bodyWidth)
+        : { ...this.budget, width: bodyWidth },
       (text) => this.theme.fg("warning", text),
     );
   }
@@ -369,23 +378,25 @@ class PermissionPromptComponent implements Component {
    * left unadvertised when the render dropped something is a decision made
    * without the evidence.
    */
-  private hint(view: DialogView): string {
-    const keys = [
-      "↑/↓ move",
-      "enter confirm",
-      "esc deny",
-      "press a letter, then again to confirm",
+  private hintParts(view: DialogView): string[] {
+    const parts = [
+      "Enter to select",
+      "↑/↓ to navigate",
+      "Esc to deny", // cancel is a denial here, so say so
+      this.config.doublePressToConfirm
+        ? "Press a key, then again to confirm"
+        : "Press a key to choose",
     ];
     if (this.expanded) {
-      keys.push("ctrl+o collapse");
+      parts.push("Ctrl+O to collapse");
     } else if (view.elided) {
-      keys.push("ctrl+o full request");
+      parts.push("Ctrl+O for full request");
     }
     const pendingTimeoutMs = this.clock?.pendingTimeoutMs;
     if (pendingTimeoutMs !== undefined) {
-      keys.push(`unanswered, denies in ${pendingTimeoutMs / 1000}s`);
+      parts.push(`unanswered, denies in ${pendingTimeoutMs / 1000}s`);
     }
-    return this.theme.fg("muted", keys.join(" · "));
+    return parts;
   }
 
   handleInput(data: string): void {
@@ -475,17 +486,21 @@ class PermissionPromptComponent implements Component {
 
   private renderDecision(width: number): string[] {
     const ask = this.renderAsk(width);
-    const lines = [this.theme.fg("accent", this.title), ...ask.lines, ""];
-    for (const action of visibleActions(this.config)) {
-      const label = this.labelFor(action);
-      const selected = this.state.highlightedAction === action;
-      const marker = selected ? "▶" : " ";
-      const row = `${marker} (${this.boundKey(action)}) ${label}`;
-      lines.push(selected ? this.theme.fg("accent", row) : row);
-    }
-    lines.push("");
-    lines.push(this.state.hint || this.hint(ask));
-    return lines;
+    const rows = visibleActions(this.config).map((action) => ({
+      key: this.config.keys[action],
+      label: this.labelFor(action),
+      selected: this.state.highlightedAction === action,
+    }));
+    const hint = this.state.hint
+      ? hintRow(this.theme, [this.state.hint], "warning")
+      : hintRow(this.theme, this.hintParts(ask));
+    return frame(
+      this.theme,
+      width,
+      this.title,
+      [...indentRows(ask.lines), "", ...optionRows(this.theme, rows, width)],
+      hint,
+    );
   }
 
   /**

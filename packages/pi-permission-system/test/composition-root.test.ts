@@ -2449,7 +2449,11 @@ describe("configured prompt preferences reach the inline dialog", () => {
               requestRender: () => void;
               terminal: { write(data: string): void };
             },
-            theme: { fg(color: string, text: string): string },
+            theme: {
+              fg(color: string, text: string): string;
+              bg(color: string, text: string): string;
+              bold(text: string): string;
+            },
             keybindings: { matches(data: string, action: string): boolean },
             done: (decision: unknown) => void,
           ) => typeof component,
@@ -2464,7 +2468,11 @@ describe("configured prompt preferences reach the inline dialog", () => {
                   },
                 },
               },
-              { fg: (_color, text) => text },
+              {
+                fg: (_color, text) => text,
+                bg: (_color, text) => text,
+                bold: (text) => text,
+              },
               { matches: () => false },
               resolve,
             );
@@ -2485,7 +2493,7 @@ describe("configured prompt preferences reach the inline dialog", () => {
   /** The hotkey each option row advertises, in rendered order. */
   function optionKeys(lines: string[]): (string | undefined)[] {
     return lines
-      .map((line) => /^[ \u25b6] \((\w)\) /.exec(line)?.[1])
+      .map((line) => /^[\u276f ] (\w)\. /.exec(line)?.[1])
       .filter((key) => key !== undefined);
   }
 
