@@ -22,11 +22,11 @@ That is least privilege, and it costs a second prompt in the read-after-write fl
 So an ask whose paths all prove the **same** direction offers both widths:
 
 ```text
-  (y) Yes
-▶ (s) Yes, allow writes to "/tmp/*" for this session
-  (b) Yes, allow reads and writes to "/tmp/*" for this session
-  (n) No
-  (r) No, provide reason
+  y. Yes
+❯ s. Yes, allow writes to "/tmp/*" for this session
+  b. Yes, allow reads and writes to "/tmp/*" for this session
+  n. No
+  r. No, provide reason
 ```
 
 - **`s`** records the proven direction only (`external_directory_write` here).

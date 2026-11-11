@@ -146,6 +146,7 @@ Every other ask shows the four options above without it.
 See [session-approvals.md](session-approvals.md#grant-direction) for what the two widths grant.
 
 Arrow keys / `j`/`k` move the highlight, `enter` confirms the highlighted option, and `esc` denies.
+The dialog is drawn with a bordered header and a ❯ option list, like Pi's own question dialogs; each row shows the key bound to it (the digits, if you remapped them), and the footer names the pending deadline when promptTimeoutMs is set.
 With `doublePressToConfirm` enabled (the default), a hotkey **arms** its action and shows a `Press y again to approve.` hint; press the same key again to commit.
 Set `doublePressToConfirm` to `false` to commit on the first press.
 

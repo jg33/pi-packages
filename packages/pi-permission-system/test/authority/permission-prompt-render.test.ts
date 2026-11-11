@@ -168,3 +168,56 @@ describe("decision step — ask_user visual language", () => {
     });
   });
 });
+
+describe("reason step", () => {
+  it("is framed like the decision step, with a bold prompt and an error row", () => {
+    const m = mountPrompt({ view: NOW });
+    m.type("r");
+    const lines = m.render(120);
+    expect(lines[0]).toBe(border(120));
+    expect(lines[2]).toContain("Permission Required");
+    expect(lines).toContain(` ${fakeTheme.bold("Reason (required):")}`);
+    expect(lines.at(-1)).toBe(
+      ` ${fakeTheme.fg("dim", "Enter to submit · Esc to go back")}`,
+    );
+    m.type(KEY.enter);
+    expect(m.render(120)).toContain(
+      ` ${fakeTheme.fg("error", "A reason is required.")}`,
+    );
+  });
+});
+
+describe("scope step", () => {
+  const options = {
+    sessionScope: {
+      subagentLabel: "This subagent only",
+      servingSessionLabel: "The whole session",
+    },
+  };
+
+  it("lists the two scopes with ❯ and no key column (no hotkeys exist here)", () => {
+    const m = mountPrompt({ view: NOW, options });
+    m.type("s");
+    const lines = m.render(120);
+    expect(lines[0]).toBe(border(120));
+    expect(lines).toContain(
+      ` ${fakeTheme.bold("Apply this session grant to:")}`,
+    );
+    expect(lines).toContain(
+      fakeTheme.fg("accent", fakeTheme.bold("❯ This subagent only")),
+    );
+    expect(lines).toContain("  The whole session");
+    expect(strip(lines.join("\n"))).not.toMatch(/\b\d\. /);
+    expect(lines.at(-1)).toBe(
+      ` ${fakeTheme.fg("dim", "↑/↓ to navigate · Enter to select · Esc to go back")}`,
+    );
+  });
+
+  it("↓ moves the ❯ to the serving-session scope", () => {
+    const m = mountPrompt({ view: NOW, options });
+    m.type("s", KEY.down);
+    expect(m.render(120)).toContain(
+      fakeTheme.fg("accent", fakeTheme.bold("❯ The whole session")),
+    );
+  });
+});

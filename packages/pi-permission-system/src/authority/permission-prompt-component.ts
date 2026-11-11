@@ -350,7 +350,7 @@ class PermissionPromptComponent implements Component {
       case "reason":
         return this.renderReason(width);
       case "scope":
-        return this.renderScope();
+        return this.renderScope(width);
     }
   }
 
@@ -526,43 +526,51 @@ class PermissionPromptComponent implements Component {
   }
 
   private renderReason(width: number): string[] {
-    const lines = [
-      this.theme.fg("accent", this.title),
-      ...this.renderAsk(width).lines,
+    const body = [
+      ...indentRows(this.renderAsk(width).lines),
       "",
-      "Reason (required):",
+      ` ${this.theme.bold("Reason (required):")}`,
       // Exactly one row, whatever its length: the editor scrolls horizontally.
       ...this.reason.render(width),
     ];
     if (this.state.reasonError) {
-      lines.push(this.theme.fg("error", this.state.reasonError));
+      body.push(` ${this.theme.fg("error", this.state.reasonError)}`);
     }
-    lines.push("");
-    lines.push(this.theme.fg("muted", "enter submit · esc back"));
-    return lines;
+    return frame(
+      this.theme,
+      width,
+      this.title,
+      body,
+      hintRow(this.theme, ["Enter to submit", "Esc to go back"]),
+    );
   }
 
-  private renderScope(): string[] {
+  private renderScope(width: number): string[] {
     const scope = this.config.sessionScope;
-    const subagentLabel = scope?.subagentLabel ?? "This subagent only";
-    const servingLabel = scope?.servingSessionLabel ?? "The whole session";
-    const rows: Array<{ label: string; serving: boolean }> = [
-      { label: subagentLabel, serving: false },
-      { label: servingLabel, serving: true },
-    ];
-    const lines = [
-      this.theme.fg("accent", this.title),
-      "Apply this session grant to:",
-      "",
-    ];
-    for (const row of rows) {
-      const selected = this.state.scopeServing === row.serving;
-      const marker = selected ? "▶" : " ";
-      const text = `${marker} ${row.label}`;
-      lines.push(selected ? this.theme.fg("accent", text) : text);
-    }
-    lines.push("");
-    lines.push(this.theme.fg("muted", "↑/↓ move · enter confirm · esc back"));
-    return lines;
+    const rows = [
+      { label: scope?.subagentLabel ?? "This subagent only", serving: false },
+      {
+        label: scope?.servingSessionLabel ?? "The whole session",
+        serving: true,
+      },
+    ].map((row) => ({
+      label: row.label,
+      selected: this.state.scopeServing === row.serving,
+    }));
+    return frame(
+      this.theme,
+      width,
+      this.title,
+      [
+        ` ${this.theme.bold("Apply this session grant to:")}`,
+        "",
+        ...optionRows(this.theme, rows, width),
+      ],
+      hintRow(this.theme, [
+        "↑/↓ to navigate",
+        "Enter to select",
+        "Esc to go back",
+      ]),
+    );
   }
 }
