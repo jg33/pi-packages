@@ -110,13 +110,39 @@ describe("permission prompt gate semantics (characterization: must hold before A
       expect(m.done).not.toHaveBeenCalled();
     });
 
-    // KNOWN HAZARD, NOT ENDORSED (plan F-4a): pinned so a restyle cannot change it silently.
-    it("PINNED HAZARD: Enter on a freshly mounted dialog approves the initially highlighted option", async () => {
+    it("first Enter arms the highlighted approve instead of deciding", () => {
+      const m = mountPrompt(); // double-press to confirm is on by default here
+      m.type(KEY.enter);
+      expect(m.done).not.toHaveBeenCalled();
+      expect(m.screen().join("\n")).toContain("Press y again to approve.");
+    });
+
+    it("second Enter approves", async () => {
       const m = mountPrompt();
+      m.type(KEY.enter, KEY.enter);
+      await expect(m.decision).resolves.toStrictEqual({
+        approved: true,
+        state: "approved",
+        decidedBy: USER,
+      });
+    });
+
+    it("Enter approves immediately when double-press to confirm is off", async () => {
+      const m = mountPrompt({ view: NOW });
       m.type(KEY.enter);
       await expect(m.decision).resolves.toStrictEqual({
         approved: true,
         state: "approved",
+        decidedBy: USER,
+      });
+    });
+
+    it("Esc denies on the first press, no arming required", async () => {
+      const m = mountPrompt();
+      m.type(KEY.esc);
+      await expect(m.decision).resolves.toStrictEqual({
+        approved: false,
+        state: "denied",
         decidedBy: USER,
       });
     });
@@ -135,7 +161,8 @@ describe("permission prompt gate semantics (characterization: must hold before A
 
     it("↑/↓ moves the highlight and enter commits the highlighted option", async () => {
       const m = mountPrompt();
-      m.type(KEY.down, KEY.down, KEY.enter); // approve -> session -> deny (no width option)
+      // approve -> session -> deny (no width option), then arm + confirm
+      m.type(KEY.down, KEY.down, KEY.enter, KEY.enter);
       await expect(m.decision).resolves.toStrictEqual({
         approved: false,
         state: "denied",

@@ -364,8 +364,10 @@ describe("presentInlinePermissionPrompt", () => {
 
   describe("navigation and escape", () => {
     it("resolves the highlighted option on enter", async () => {
-      // y -> s -> n, then enter
-      expect(await runPrompt(true, [ARROW_DOWN, ARROW_DOWN, ENTER])).toEqual({
+      // y -> s -> n, then arm + confirm (double-press is enabled here)
+      expect(
+        await runPrompt(true, [ARROW_DOWN, ARROW_DOWN, ENTER, ENTER]),
+      ).toEqual({
         approved: false,
         state: "denied",
       });

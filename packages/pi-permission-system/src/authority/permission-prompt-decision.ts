@@ -187,7 +187,7 @@ function reduceDecisionStep(
         ? pressHotkey(config, state, event.action)
         : render(state);
     case "confirm":
-      return commit(config, state, state.highlightedAction);
+      return pressHotkey(config, state, state.highlightedAction);
     case "cancel":
       return { kind: "decision", decision: createDeniedPermissionDecision() };
     case "submitReason":

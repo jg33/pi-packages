@@ -192,7 +192,26 @@ describe("reducePrompt", () => {
       expect(state.highlightedAction).toBe("approve");
     });
 
-    it("confirms the highlighted option in a single enter press even when double-press is enabled", () => {
+    it("arms the highlighted option on enter instead of deciding", () => {
+      const config = makeConfig();
+      const outcome = reducePrompt(config, initialPromptState(config), {
+        type: "confirm",
+      });
+      expect(outcome).toEqual({
+        kind: "render",
+        state: {
+          step: "decision",
+          highlightedAction: "approve",
+          armedAction: "approve",
+          hint: "Press y again to approve.",
+          reasonError: undefined,
+          scopeServing: false,
+          grantWidth: "proven",
+        },
+      });
+    });
+
+    it("commits the highlighted option on the second enter press", () => {
       const config = makeConfig();
       const down = reducePrompt(config, initialPromptState(config), {
         type: "nav",
@@ -205,7 +224,11 @@ describe("reducePrompt", () => {
         direction: "down",
       });
       assertRender(down2);
-      const outcome = reducePrompt(config, down2.state, { type: "confirm" });
+      const armed = reducePrompt(config, down2.state, { type: "confirm" });
+      assertRender(armed);
+      expect(armed.state.armedAction).toBe("deny");
+      expect(armed.state.highlightedAction).toBe("deny");
+      const outcome = reducePrompt(config, armed.state, { type: "confirm" });
       expect(outcome).toEqual({
         kind: "decision",
         decision: { approved: false, state: "denied" },
