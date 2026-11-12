@@ -2,9 +2,14 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { ParentAuthorizer } from "#src/authority/approval-escalator";
 import { selectAuthorizer } from "#src/authority/authorizer";
-import { DenyingAuthorizer } from "#src/authority/denying-authorizer";
+import {
+  DenyingAuthorizer,
+  NoForwardingParentAuthorizer,
+} from "#src/authority/denying-authorizer";
 import type { TargetServingLookup } from "#src/authority/forwarding-liveness";
 import { LocalUserAuthorizer } from "#src/authority/local-user-authorizer";
+import { SubagentDetection } from "#src/authority/subagent-detection";
+import { posixPathFlavor } from "#src/path/path-flavor";
 import {
   makeAuthorizerSelectionDeps as makeDeps,
   makeDetection,
@@ -50,12 +55,13 @@ describe("selectAuthorizer", () => {
       expect(authority.terminal).toBeInstanceOf(LocalUserAuthorizer);
     });
 
-    it("selects LocalUserAuthorizer for a subagent with UI that declares no parent", () => {
+    it("selects the fail-fast denier for a subagent with UI that declares no parent", () => {
       const authority = selectAuthorizer(
         makeCtx(true),
         makeDeps({ detection: makeDetection(true) }),
       );
-      expect(authority.terminal).toBeInstanceOf(LocalUserAuthorizer);
+      expect(authority.terminal).toBeInstanceOf(NoForwardingParentAuthorizer);
+      expect(authority.relayTarget).toBeUndefined();
     });
 
     it("selects ParentAuthorizer when there is no UI but the context is a subagent", () => {
@@ -155,7 +161,7 @@ describe("selectAuthorizer", () => {
       });
     });
 
-    it("keeps the local dialog when the declared parent is not serving", () => {
+    it("fails fast when the declared parent is not serving", () => {
       vi.stubEnv("PI_SUBAGENT_PARENT_SESSION", "lead-session");
       const authority = selectAuthorizer(
         makeCtx(true),
@@ -164,12 +170,12 @@ describe("selectAuthorizer", () => {
           serving: makeServing(false),
         }),
       );
-      expect(authority.terminal).toBeInstanceOf(LocalUserAuthorizer);
+      expect(authority.terminal).toBeInstanceOf(NoForwardingParentAuthorizer);
       expect(authority.adjudicatesLocally).toBe(true);
       expect(authority.relayTarget).toBeUndefined();
     });
 
-    it("keeps the local dialog when no channel can answer for the parent", () => {
+    it("fails fast when no channel can answer for the parent", () => {
       vi.stubEnv("PI_SUBAGENT_PARENT_SESSION", "lead-session");
       const authority = selectAuthorizer(
         makeCtx(true),
@@ -178,17 +184,17 @@ describe("selectAuthorizer", () => {
           serving: makeServing(null),
         }),
       );
-      expect(authority.terminal).toBeInstanceOf(LocalUserAuthorizer);
+      expect(authority.terminal).toBeInstanceOf(NoForwardingParentAuthorizer);
     });
 
-    it("keeps the local dialog when the marker names the reading session", () => {
+    it("fails fast when the marker names the reading session", () => {
       vi.stubEnv("PI_SUBAGENT_PARENT_SESSION", "session-1");
       const serving = makeServing(true);
       const authority = selectAuthorizer(
         makeCtx(true),
         makeDeps({ detection: makeDetection(true), serving }),
       );
-      expect(authority.terminal).toBeInstanceOf(LocalUserAuthorizer);
+      expect(authority.terminal).toBeInstanceOf(NoForwardingParentAuthorizer);
       expect(serving.isServing).not.toHaveBeenCalled();
     });
   });
@@ -203,6 +209,36 @@ describe("selectAuthorizer", () => {
       );
       expect(authority.terminal).toBeInstanceOf(ParentAuthorizer);
       expect(serving.isServing).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("with the production subagent detector", () => {
+    // The fake detection cannot catch the root's self-naming marker
+    // (subagent-forwarding writes PI_SUBAGENT_PARENT_SESSION=<own id> into
+    // every rooted session), so these two run the real detector.
+    const realDetection = () =>
+      new SubagentDetection({
+        subagentSessionsDir: "/sessions/subagents",
+        flavor: posixPathFlavor,
+      });
+
+    it("gives a self-marked root a real local prompt and never auto-denies", () => {
+      vi.stubEnv("PI_SUBAGENT_PARENT_SESSION", "session-1"); // makeCtx's id
+      const authority = selectAuthorizer(
+        makeCtx(true),
+        makeDeps({ detection: realDetection() }),
+      );
+      expect(authority.terminal).toBeInstanceOf(LocalUserAuthorizer);
+      expect(authority.adjudicatesLocally).toBe(true);
+    });
+
+    it("still fails fast for a genuine child that declares no parent", () => {
+      vi.stubEnv("PI_SUBAGENT_NAME", "worker"); // child hint, no candidate
+      const authority = selectAuthorizer(
+        makeCtx(true),
+        makeDeps({ detection: realDetection() }),
+      );
+      expect(authority.terminal).toBeInstanceOf(NoForwardingParentAuthorizer);
     });
   });
 });

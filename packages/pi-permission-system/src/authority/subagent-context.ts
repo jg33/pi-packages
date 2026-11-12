@@ -1,6 +1,9 @@
 import type { PathFlavor } from "#src/path/path-flavor";
 import { readSessionId } from "#src/session/session-identity";
-import { SUBAGENT_ENV_HINT_KEYS } from "./permission-forwarding";
+import {
+  SUBAGENT_ENV_HINT_KEYS,
+  SUBAGENT_PARENT_SESSION_ENV_CANDIDATES,
+} from "./permission-forwarding";
 import type { SubagentSessionRegistry } from "./subagent-registry";
 
 /**
@@ -59,11 +62,25 @@ export function isSubagentExecutionContext(
 
   // 2. Env vars — process-based subagent extensions (nicobailon/pi-subagents,
   //    HazAT/pi-interactive-subagents, pi-agent-router, etc.).
+  //
+  //    A parent-session candidate naming *this* session is the root's own
+  //    claim (subagent-forwarding writes it so descendants inherit it), not a
+  //    parent: honouring it would mark every root as its own child (#907).
+  //    Naming yourself your own parent names no parent.
+  const own = readSessionId(ctx);
   for (const key of SUBAGENT_ENV_HINT_KEYS) {
     const value = process.env[key];
-    if (typeof value === "string" && value.trim()) {
-      return true;
+    if (typeof value !== "string" || !value.trim()) {
+      continue;
     }
+    if (
+      SUBAGENT_PARENT_SESSION_ENV_CANDIDATES.includes(key) &&
+      own !== null &&
+      value.trim() === own
+    ) {
+      continue;
+    }
+    return true;
   }
 
   // 3. Filesystem path — fallback heuristic for extensions that store sessions

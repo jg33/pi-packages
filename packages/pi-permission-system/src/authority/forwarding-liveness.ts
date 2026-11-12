@@ -61,6 +61,13 @@ export interface ServingHeartbeat {
   /** The serving process, so a killed session is detectable without waiting out staleness. */
   pid: number;
   updatedAt: number;
+  /**
+   * {@link SERVING_HEARTBEAT_STALE_MS}, stamped so readers *outside* this
+   * package (the subagent-forwarding extension's liveness check) derive their
+   * window from this constant instead of hard-coding one that can drift from
+   * it. Optional only so records written before the stamp still parse.
+   */
+  staleAfterMs?: number;
 }
 
 /**
@@ -253,6 +260,7 @@ export class ServingHeartbeatStore
       sessionId,
       pid: this.pid,
       updatedAt: at,
+      staleAfterMs: SERVING_HEARTBEAT_STALE_MS,
     };
     try {
       writeJsonFileAtomic(

@@ -4,7 +4,10 @@ import type { AuthorizerLog, PermissionQuery } from "#src/service";
 import type { PermissionEventBus } from "#src/service/permission-events";
 import { ParentAuthorizer } from "./approval-escalator";
 import type { AskDialogAdmission } from "./ask-dialog-queue";
-import { DenyingAuthorizer } from "./denying-authorizer";
+import {
+  DenyingAuthorizer,
+  NoForwardingParentAuthorizer,
+} from "./denying-authorizer";
 import { getSessionId } from "./forwarder-context";
 import type { TargetServingLookup } from "./forwarding-liveness";
 import { LocalUserAuthorizer } from "./local-user-authorizer";
@@ -81,10 +84,12 @@ export interface TerminalAuthorizer {
  * whether this node adjudicates them with its own chain.
  *
  * The chain role is the selection's product, not a discriminator a consumer
- * re-derives: a node with a UI decides locally unless it names another session
- * that is draining its forwarded-permission inbox (#909), so re-deriving the
- * role from `ctx.hasUI` or `detection.isSubagent(ctx)` alone would get that
- * case wrong in opposite directions.
+ * re-derives: a node with a UI relays to a session that is draining its
+ * forwarded-permission inbox (#909), a subagent whose declared parent is
+ * absent or not draining denies outright rather than prompt a surface nobody
+ * answers, and any other node with a UI decides locally — so re-deriving the
+ * role from `ctx.hasUI` or `detection.isSubagent(ctx)` alone would get those
+ * cases wrong.
  */
 export interface SelectedAuthority {
   /** The terminal that decides this node's asks, or relays them upward. */
@@ -148,28 +153,45 @@ export function selectAuthorizer(
   deps: AuthorizerSelectionDeps,
 ): SelectedAuthority {
   if (ctx.hasUI) {
-    const relayTarget = resolveLiveRelayTarget(ctx, deps);
-    if (relayTarget === null) {
+    const isSubagent = deps.detection.isSubagent(ctx);
+    const target = resolveDeclaredTarget(ctx, deps, isSubagent);
+    const relayTarget =
+      target !== null && deps.serving.isServing(target) === true
+        ? target
+        : null;
+    if (relayTarget !== null) {
       return {
-        terminal: new LocalUserAuthorizer({
-          ui: ctx.ui,
-          mode: ctx.mode,
-          events: deps.events,
-          dialogs: deps.dialogs,
-          getPromptPreferences: deps.getPromptPreferences,
-          requestPermissionDecision: deps.requestPermissionDecision,
-          describeSession: () => ({
-            name: ctx.sessionManager.getSessionName(),
-            cwd: ctx.cwd,
-          }),
-        }),
+        terminal: buildParentAuthorizer(ctx, deps),
+        adjudicatesLocally: false,
+        relayTarget,
+      };
+    }
+    if (isSubagent) {
+      // A subagent whose declared parent is absent — or not draining its
+      // inbox — has no human to ask: its own surface goes unattended, so a
+      // prompt here would wait out `promptTimeoutMs` against nobody. Refuse at
+      // once instead — the chain still runs (adjudicatesLocally stays true),
+      // so a link's allow is unaffected. A root session never reaches this arm:
+      // its self-naming marker is not a parent, so detection reads false.
+      return {
+        terminal: new NoForwardingParentAuthorizer(),
         adjudicatesLocally: true,
       };
     }
     return {
-      terminal: buildParentAuthorizer(ctx, deps),
-      adjudicatesLocally: false,
-      relayTarget,
+      terminal: new LocalUserAuthorizer({
+        ui: ctx.ui,
+        mode: ctx.mode,
+        events: deps.events,
+        dialogs: deps.dialogs,
+        getPromptPreferences: deps.getPromptPreferences,
+        requestPermissionDecision: deps.requestPermissionDecision,
+        describeSession: () => ({
+          name: ctx.sessionManager.getSessionName(),
+          cwd: ctx.cwd,
+        }),
+      }),
+      adjudicatesLocally: true,
     };
   }
   if (deps.detection.isSubagent(ctx)) {
@@ -182,30 +204,24 @@ export function selectAuthorizer(
 }
 
 /**
- * The session a node with a UI should relay to, or `null` when it should decide
- * for itself.
- *
- * A human is present here, so only a definite "yes" relays: a target nobody can
- * confirm is draining its inbox leaves the ask with the human who is already
- * watching. That is the opposite burden of proof from
- * `ParentAuthorizer.checkServingLiveness`, where an unjudgeable target waits
- * out the timeout because a headless child has no alternative.
+ * The session `ctx` declares as its forwarding parent, or `null` when it names
+ * none (a root's self-naming claim is excluded by detection before this runs).
+ * Liveness is deliberately *not* consulted here: the caller pairs this result
+ * with the serving check, so a declared-but-unserved parent — which has no one
+ * to ask either — denies rather than prompts a surface nobody watches.
  */
-function resolveLiveRelayTarget(
+function resolveDeclaredTarget(
   ctx: ExtensionContext,
   deps: AuthorizerSelectionDeps,
+  isSubagent: boolean,
 ): PermissionForwardingTarget | null {
   const sessionId = getSessionId(ctx);
-  const target = resolvePermissionForwardingTarget({
-    isSubagent: deps.detection.isSubagent(ctx),
+  return resolvePermissionForwardingTarget({
+    isSubagent,
     currentSessionId: sessionId,
     sessionId,
     registry: deps.registry,
   });
-  if (target === null || deps.serving.isServing(target) !== true) {
-    return null;
-  }
-  return target;
 }
 
 /** The relaying terminal for `ctx`, built from the selection's own deps. */

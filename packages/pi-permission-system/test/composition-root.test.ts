@@ -1156,8 +1156,10 @@ describe("fact-shaping inheritance stops at live authority", () => {
     );
     getSubagentSessionRegistry().register(childSessionId, { parentSessionId });
 
-    // The child has UI and no serving parent, so it adjudicates locally and its
-    // own chain runs — the one shape in which a missing link changes the verdict.
+    // The child has UI but no serving parent, so it adjudicates locally — its
+    // own chain runs (the one shape in which a missing link changes the
+    // verdict), and with nowhere to forward the ask it is refused at once
+    // rather than prompted (#child-no-serving-parent).
     const capturedTitles: string[] = [];
     const notified: string[] = [];
     const childCtx = makeBaseCtx(childCwd, childSessionId, {
@@ -1181,17 +1183,18 @@ describe("fact-shaping inheritance stops at live authority", () => {
       "tool_call",
       { toolName: "demo", toolCallId: "link-1", input: {} },
       childCtx,
-    )) as { block?: true };
+    )) as { block?: true; reason?: string };
 
     // The parent's link never runs in the child: the ask reaches the child's
-    // own approving terminal, and the chain records the vacancy.
+    // own fail-fast terminal, and the chain records the vacancy.
     expect(authorize).not.toHaveBeenCalled();
-    expect(result.block).toBeUndefined();
-    expect(capturedTitles).toHaveLength(1);
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain("PI_SUBAGENT_PARENT_SESSION");
+    expect(capturedTitles).toHaveLength(0);
     expect(readReviewLog().map((entry) => entry.event)).toContain(
       "authorizer_chain_unregistered_link",
     );
-    // And the operator answering that prompt is told why no judge answered it:
+    // And the configured name's absence is told once per configured name:
     // the review log alone left the skip invisible (#861).
     expect(notified).toEqual([unregisteredLinkMessage("parent-only-judge")]);
 
