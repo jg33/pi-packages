@@ -56,6 +56,20 @@ export function visibleActions(
   return config.widthLabel ? OPTION_ORDER : NARROW_OPTION_ORDER;
 }
 
+/**
+ * The number rendered beside an option, following {@link visibleActions} order.
+ *
+ * The dialog's rows are numbered and herdr's Asks panel adopts those numbers as
+ * its buttons (it presses the digit, then Enter), so the number a row shows and
+ * the number that selects it have to come from this one function.
+ */
+export function actionOrdinal(
+  config: PromptModelConfig,
+  action: PromptAction,
+): number {
+  return visibleActions(config).indexOf(action) + 1;
+}
+
 const OPTION_VERBS: Record<PromptAction, string> = {
   approve: "approve",
   approveSession: "approve for this session",
@@ -118,7 +132,7 @@ export interface PromptViewState {
 /** An input event the reducer understands. */
 export type PromptEvent =
   | { type: "nav"; direction: "up" | "down" }
-  | { type: "hotkey"; action: PromptAction }
+  | { type: "hotkey"; action: PromptAction; key?: string }
   | { type: "confirm" }
   | { type: "cancel" }
   | { type: "submitReason"; draft: string };
@@ -184,7 +198,7 @@ function reduceDecisionStep(
       });
     case "hotkey":
       return visibleActions(config).includes(event.action)
-        ? pressHotkey(config, state, event.action)
+        ? pressHotkey(config, state, event.action, event.key)
         : render(state);
     case "confirm":
       return pressHotkey(config, state, state.highlightedAction);
@@ -199,6 +213,7 @@ function pressHotkey(
   config: PromptModelConfig,
   state: PromptViewState,
   action: PromptAction,
+  key?: string,
 ): PromptOutcome {
   if (!config.doublePressToConfirm || state.armedAction === action) {
     return commit(config, state, action);
@@ -207,7 +222,9 @@ function pressHotkey(
     ...state,
     highlightedAction: action,
     armedAction: action,
-    hint: `Press ${config.keys[action]} again to ${OPTION_VERBS[action]}.`,
+    // Name the key the operator pressed: rows are numbered, so a digit press
+    // must not be answered with "Press y again".
+    hint: `Press ${key ?? config.keys[action]} again to ${OPTION_VERBS[action]}.`,
   });
 }
 

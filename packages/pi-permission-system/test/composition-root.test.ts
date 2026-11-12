@@ -2612,10 +2612,10 @@ describe("configured prompt preferences reach the inline dialog", () => {
     writeGlobalConfig({
       permission: { "*": "allow", demo: "ask" },
       permissionDialogKeys: {
-        approve: "1",
-        approveSession: "2",
-        deny: "4",
-        denyWithReason: "5",
+        approve: "a",
+        approveSession: "c",
+        deny: "e",
+        denyWithReason: "f",
       },
     });
 
@@ -2633,13 +2633,13 @@ describe("configured prompt preferences reach the inline dialog", () => {
     ) as Promise<{ block?: true }>;
     await sleep(0);
 
-    expect(optionKeys(render())).toEqual(["1", "2", "4", "5"]);
+    expect(optionKeys(render())).toEqual(["a", "c", "e", "f"]);
 
     // The default letter is no longer live; the configured one commits.
     press("n");
     press("n");
-    press("4");
-    press("4");
+    press("e");
+    press("e");
     expect((await decision).block).toBe(true);
 
     rmSync(cwd, { recursive: true, force: true });

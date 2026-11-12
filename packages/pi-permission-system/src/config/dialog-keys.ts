@@ -86,12 +86,26 @@ export function isBindableDialogKey(value: string): boolean {
 }
 
 /**
- * The characters the dialog answers to before any decision does.
+ * The characters no decision may be bound to.
  *
- * `handleInput` maps these to navigation ahead of the decision table, so a
- * decision bound to one would simply never fire.
+ * `handleInput` maps `j`/`k` to navigation ahead of the decision table, so a
+ * decision bound to one would simply never fire. Digits are the numbered
+ * rows' own vocabulary: with `{"deny": "1"}`, row 1 would render as "Yes"
+ * while pressing `1` denies — a button that lies about what it does.
  */
-export const RESERVED_DIALOG_KEYS: readonly string[] = ["j", "k"];
+export const RESERVED_DIALOG_KEYS: readonly string[] = [
+  "j",
+  "k",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+];
 
 /**
  * The bindings a config asks for, reconciled against the defaults.
@@ -123,7 +137,13 @@ export function resolveDialogKeys(
     }
     if (RESERVED_DIALOG_KEYS.includes(value)) {
       issues.push(
-        refusal(action, value, "is reserved for moving the dialog's highlight"),
+        refusal(
+          action,
+          value,
+          DIGITS.includes(value)
+            ? "is reserved for choosing a numbered option row"
+            : "is reserved for moving the dialog's highlight",
+        ),
       );
       continue;
     }

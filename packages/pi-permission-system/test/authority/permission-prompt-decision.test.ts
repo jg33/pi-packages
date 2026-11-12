@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  actionOrdinal,
   initialPromptState,
   type PromptModelConfig,
   type PromptOutcome,
@@ -672,6 +673,63 @@ describe("reducePrompt", () => {
       });
       assertRender(outcome);
       expect(outcome.state.hint).toBe("Press n again to deny.");
+    });
+  });
+});
+
+describe("option ordinals", () => {
+  const narrow = makeConfig();
+  const wide = makeConfig({ widthLabel: 'Yes, both directions for "/tmp/*"' });
+
+  it("numbers the narrow roster 1..4, skipping the both-directions row", () => {
+    expect(actionOrdinal(narrow, "approve")).toBe(1);
+    expect(actionOrdinal(narrow, "approveSession")).toBe(2);
+    expect(actionOrdinal(narrow, "deny")).toBe(3);
+    expect(actionOrdinal(narrow, "denyWithReason")).toBe(4);
+  });
+
+  it("numbers the wide roster 1..5", () => {
+    expect(actionOrdinal(wide, "approveSessionBoth")).toBe(3);
+    expect(actionOrdinal(wide, "deny")).toBe(4);
+    expect(actionOrdinal(wide, "denyWithReason")).toBe(5);
+  });
+});
+
+describe("a digit hotkey (the key herdr presses)", () => {
+  const config = makeConfig();
+
+  it("arms and names the digit that was pressed", () => {
+    const outcome = reducePrompt(config, initialPromptState(config), {
+      type: "hotkey",
+      action: "approve",
+      key: "1",
+    });
+    expect(outcome).toMatchObject({
+      kind: "render",
+      state: { armedAction: "approve", hint: "Press 1 again to approve." },
+    });
+  });
+
+  it("commits on the Enter herdr sends next", () => {
+    const armed = reducePrompt(config, initialPromptState(config), {
+      type: "hotkey",
+      action: "approve",
+      key: "1",
+    });
+    assertRender(armed);
+    expect(reducePrompt(config, armed.state, { type: "confirm" })).toEqual({
+      kind: "decision",
+      decision: { approved: true, state: "approved" },
+    });
+  });
+
+  it("still names the configured letter when no key is carried (Enter-driven arm)", () => {
+    const outcome = reducePrompt(config, initialPromptState(config), {
+      type: "hotkey",
+      action: "approve",
+    });
+    expect(outcome).toMatchObject({
+      state: { hint: "Press y again to approve." },
     });
   });
 });

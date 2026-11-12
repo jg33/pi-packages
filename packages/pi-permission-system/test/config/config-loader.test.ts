@@ -1169,7 +1169,7 @@ describe("detectUnusableDialogKeys", () => {
   it("returns undefined when every configured binding is usable", () => {
     expect(
       detectUnusableDialogKeys({
-        permissionDialogKeys: { approve: "1", deny: "4" },
+        permissionDialogKeys: { approve: "a", deny: "e" },
       }),
     ).toBeUndefined();
   });
