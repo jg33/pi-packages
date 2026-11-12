@@ -42,6 +42,7 @@ import {
   optionRows,
 } from "./permission-prompt-chrome";
 import {
+  actionOrdinal,
   initialPromptState,
   type PromptEvent,
   type PromptModelConfig,
@@ -231,6 +232,17 @@ export function presentInlinePermissionPrompt(
     sessionScope: options?.sessionScope,
     keys: view.dialogKeys,
   };
+  // local patch: `kind: "permission"` alone is what makes herdr classify the
+  // ask as APPROVAL; the `approve <tool>: <target>` shape only supplies its
+  // `Allow <tool>: <target>` question line. `parseReport` returns
+  // `options: []` for this kind, so the actionable buttons come from herdr
+  // scraping the numbered rows off the visible screen. Fall back to the title
+  // when either fact is missing (a non-tool-shaped ask has `toolName: null`).
+  const target = payload.request.value.replace(/\s+/g, " ").trim();
+  const blockedMessage =
+    payload.request.toolName && target
+      ? `approve ${payload.request.toolName}: ${target}`
+      : title;
   return view.ui.custom<UnattributedDecision | undefined>(
     (tui, theme, keybindings, done) => {
       // The host's `done` is idempotent, so a human answer racing the abort
@@ -266,7 +278,10 @@ export function presentInlinePermissionPrompt(
         () => tui.terminal.rows,
       );
     },
-    { overlay: false, blocked: { kind: "permission", message: title } },
+    {
+      overlay: false,
+      blocked: { kind: "permission", message: blockedMessage },
+    },
   );
 }
 
@@ -470,11 +485,29 @@ class PermissionPromptComponent implements Component {
       return { type: "cancel" };
     }
     if (this.state.step === "decision") {
-      const action = visibleActions(this.config).find((option) =>
+      const actions = visibleActions(this.config);
+      // The ordinal is resolved first because it is the rendered label: rows
+      // show actionOrdinal, so the digit a row shows must select that row.
+      // The reserved-digit rule (RESERVED_DIALOG_KEYS) guarantees no
+      // configured binding can be a digit, so this order cannot shadow a
+      // binding any real config can express.
+      const position = actions.findIndex((_, index) =>
+        matchesKey(data, String(index + 1) as KeyId),
+      );
+      if (position >= 0) {
+        // Echo the matched character, never the raw keystroke: matchesKey also
+        // accepts CSI-u sequences, which must not surface in the hint.
+        return {
+          type: "hotkey",
+          action: actions[position],
+          key: String(position + 1),
+        };
+      }
+      const bound = actions.find((option) =>
         matchesKey(data, this.boundKey(option)),
       );
-      if (action) {
-        return { type: "hotkey", action };
+      if (bound) {
+        return { type: "hotkey", action: bound, key: this.boundKey(bound) };
       }
     }
     return undefined;
@@ -496,7 +529,7 @@ class PermissionPromptComponent implements Component {
   private renderDecision(width: number): string[] {
     const ask = this.renderAsk(width, visibleActions(this.config).length);
     const rows = visibleActions(this.config).map((action) => ({
-      key: this.config.keys[action],
+      key: String(actionOrdinal(this.config, action)),
       label: this.labelFor(action),
       selected: this.state.highlightedAction === action,
     }));

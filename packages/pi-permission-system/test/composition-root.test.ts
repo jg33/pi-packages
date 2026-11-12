@@ -2608,7 +2608,7 @@ describe("configured prompt preferences reach the inline dialog", () => {
     });
   });
 
-  it("renders and honors the characters the config bound", async () => {
+  it("honors the characters the config bound (rows are numbered by position)", async () => {
     writeGlobalConfig({
       permission: { "*": "allow", demo: "ask" },
       permissionDialogKeys: {
@@ -2633,7 +2633,8 @@ describe("configured prompt preferences reach the inline dialog", () => {
     ) as Promise<{ block?: true }>;
     await sleep(0);
 
-    expect(optionKeys(render())).toEqual(["a", "c", "e", "f"]);
+    // Rows show their position, not the configured characters.
+    expect(optionKeys(render())).toEqual(["1", "2", "3", "4"]);
 
     // The default letter is no longer live; the configured one commits.
     press("n");
@@ -2682,7 +2683,8 @@ describe("configured prompt preferences reach the inline dialog", () => {
       ctx,
     ) as Promise<{ block?: true }>;
     await sleep(0);
-    expect(optionKeys(render())).toEqual(["y", "s", "n", "r"]);
+    // Rows are numbered by position either way; the kept default letter commits.
+    expect(optionKeys(render())).toEqual(["1", "2", "3", "4"]);
     press("n");
     press("n");
     expect((await decision).block).toBe(true);

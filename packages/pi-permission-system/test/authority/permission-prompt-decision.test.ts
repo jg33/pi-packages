@@ -648,11 +648,11 @@ describe("reducePrompt", () => {
 
   describe("bound characters", () => {
     const REMAPPED = {
-      approve: "1",
-      approveSession: "2",
-      approveSessionBoth: "3",
-      deny: "4",
-      denyWithReason: "5",
+      approve: "a",
+      approveSession: "c",
+      approveSessionBoth: "d",
+      deny: "e",
+      denyWithReason: "f",
     } as const;
 
     it("names the bound character in the arming hint", () => {
@@ -662,7 +662,7 @@ describe("reducePrompt", () => {
         action: "approve",
       });
       assertRender(outcome);
-      expect(outcome.state.hint).toBe("Press 1 again to approve.");
+      expect(outcome.state.hint).toBe("Press a again to approve.");
     });
 
     it("names the default letter when no binding was configured", () => {
@@ -692,6 +692,13 @@ describe("option ordinals", () => {
     expect(actionOrdinal(wide, "approveSessionBoth")).toBe(3);
     expect(actionOrdinal(wide, "deny")).toBe(4);
     expect(actionOrdinal(wide, "denyWithReason")).toBe(5);
+  });
+
+  it("returns 0 for an action the roster does not offer", () => {
+    // Documented contract: an action with no row gets no number, so it can
+    // never be selected by a digit.
+    expect(actionOrdinal(narrow, "approveSessionBoth")).toBe(0);
+    expect(actionOrdinal(wide, "approveSessionBoth")).toBe(3);
   });
 });
 

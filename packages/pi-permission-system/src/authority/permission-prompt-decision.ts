@@ -62,6 +62,9 @@ export function visibleActions(
  * The dialog's rows are numbered and herdr's Asks panel adopts those numbers as
  * its buttons (it presses the digit, then Enter), so the number a row shows and
  * the number that selects it have to come from this one function.
+ *
+ * Returns `0` for an action that is not in `visibleActions(config)` — the
+ * roster a given ask actually offers — since such an action renders no row.
  */
 export function actionOrdinal(
   config: PromptModelConfig,
@@ -112,7 +115,7 @@ export interface PromptViewState {
   highlightedAction: PromptAction;
   /** Set only while awaiting the confirming second press of a hotkey. */
   armedAction?: PromptAction;
-  /** "Press y again to approve." while armed; empty otherwise. */
+  /** "Press 1 again to approve." while armed (echoing the pressed key, or the configured binding); empty otherwise. */
   hint: string;
   /** Set when an empty reason submit is rejected. */
   reasonError?: string;

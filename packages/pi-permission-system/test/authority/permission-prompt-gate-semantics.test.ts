@@ -101,7 +101,7 @@ describe("permission prompt gate semantics (characterization: must hold before A
       const m = mountPrompt({ view: NOW });
       m.type("r", KEY.esc);
       expect(m.done).not.toHaveBeenCalled();
-      expect(m.screen().join("\n")).toMatch(/y\W+Yes/);
+      expect(m.screen().join("\n")).toMatch(/1\W+Yes/);
     });
 
     it("keys that are bound to nothing never decide", () => {
@@ -206,7 +206,7 @@ describe("permission prompt gate semantics (characterization: must hold before A
       const m = mountPrompt({ view: NOW, options });
       m.type("s", KEY.esc);
       expect(m.done).not.toHaveBeenCalled();
-      expect(m.screen().join("\n")).toMatch(/n\W+No/);
+      expect(m.screen().join("\n")).toMatch(/3\W+No/);
     });
   });
 
@@ -252,18 +252,18 @@ describe("permission prompt gate semantics (characterization: must hold before A
 
   describe("permissionDialogKeys remapping", () => {
     const dialogKeys = {
-      approve: "1",
-      approveSession: "2",
-      approveSessionBoth: "3",
-      deny: "4",
-      denyWithReason: "5",
+      approve: "a",
+      approveSession: "c",
+      approveSessionBoth: "d",
+      deny: "e",
+      denyWithReason: "f",
     };
 
     it("answers to the bound key and not the default letter", async () => {
       const m = mountPrompt({ view: { ...NOW, dialogKeys } });
       m.type("y");
       expect(m.done).not.toHaveBeenCalled();
-      m.type("1");
+      m.type("a");
       await expect(m.decision).resolves.toStrictEqual({
         approved: true,
         state: "approved",
@@ -271,11 +271,13 @@ describe("permission prompt gate semantics (characterization: must hold before A
       });
     });
 
-    it("shows the bound key beside its option", () => {
+    it("numbers rows by position, not by the configured key", () => {
       const m = mountPrompt({ view: { ...NOW, dialogKeys } });
       const text = m.screen().join("\n");
       expect(text).toMatch(/1\W+Yes/);
-      expect(text).toMatch(/4\W+No\b/);
+      // Rows are numbered by position, not by the remapped character: on this
+      // narrow ask deny sits third, because the both-directions row is absent.
+      expect(text).toMatch(/3\W+No\b/);
     });
   });
 
@@ -355,7 +357,7 @@ describe("permission prompt gate semantics (characterization: must hold before A
     const m = mountPrompt();
     expect(m.custom).toHaveBeenCalledWith(expect.any(Function), {
       overlay: false,
-      blocked: { kind: "permission", message: "Permission Required" },
+      blocked: { kind: "permission", message: "approve bash: rm -rf /tmp/x" },
     });
   });
 });

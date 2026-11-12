@@ -284,16 +284,16 @@ const dialogKeysSchema = z
   })
   .meta({
     description:
-      "Remaps the inline TUI permission dialog's decision hotkeys. Each value is one printable character.",
+      "Remaps the inline TUI permission dialog's decision hotkeys. Each value is one printable character. Digits 1–9 are reserved for the numbered option rows.",
     markdownDescription:
-      "Remaps the inline **TUI** permission dialog's decision hotkeys, which default to `y` / `s` / `b` / `n` / `r`.\n\nEach value is a single printable character — a lowercase letter, a digit, or a symbol. Digits are the usual choice for input-method-editor (IME) users, whose composition mode swallows letter keys before they reach the terminal.\n\n`j` and `k` are reserved for moving the dialog's highlight, uppercase is rejected (pi lowercases a key identifier, so `\"Y\"` would answer to `y`), and two decisions may not share a character. An entry that breaks one of those rules is ignored with a warning and its decision keeps its default letter.\n\nA project config replaces a global one's map entirely rather than merging entry by entry.",
+      "Remaps the inline **TUI** permission dialog's decision hotkeys, which default to `y` / `s` / `b` / `n` / `r`.\n\nEach value is a single printable character — a lowercase letter, the digit `0`, or a symbol. Digits `1`–`9` are reserved for the dialog's numbered option rows: every row prints its position number, and the rendered number and the action a digit selects must never disagree, so an entry naming a digit is refused with a message and its decision keeps its default letter.\n\n`j` and `k` are reserved for moving the dialog's highlight, uppercase is rejected (pi lowercases a key identifier, so `\"Y\"` would answer to `y`), and two decisions may not share a character. An entry that breaks one of those rules is ignored with a warning and its decision keeps its default letter.\n\nA project config replaces a global one's map entirely rather than merging entry by entry.",
     examples: [
       {
-        approve: "1",
-        approveSession: "2",
-        approveSessionBoth: "3",
-        deny: "4",
-        denyWithReason: "5",
+        approve: "a",
+        approveSession: "f",
+        approveSessionBoth: "w",
+        deny: "d",
+        denyWithReason: "x",
       },
     ],
   });

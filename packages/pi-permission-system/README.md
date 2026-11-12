@@ -65,8 +65,12 @@ All permissions use one of three states:
 | `ask`   | Prompts the user for confirmation via UI |
 
 When the dialog prompts, you can approve once or approve a pattern for the rest of the session.
-In an interactive TUI session the prompt is an inline keybind dialog — `y` approve, `s` approve for this session, `n` deny, `r` deny with a reason — where each hotkey arms and a second press confirms (configurable via `doublePressToConfirm`).
-The hotkeys themselves are remappable through `permissionDialogKeys`, which matters if you type with an input method editor: composition mode swallows letter keys before they reach the terminal, and digits do not.
+In an interactive TUI session the prompt is an inline dialog whose options are numbered by position — `❯ 1. Yes`, `2. Yes, for this session`, `3. No`, `4. No, provide reason` — with `b`'s both-directions grant numbered into that order (taking `3.` and shifting deny down) whenever the ask offers it, and each choice arms on the first press and confirms on the second (configurable via `doublePressToConfirm`).
+The letters `y` / `s` / `b` / `n` / `r` keep working exactly as before: the row prints its position number instead of the bound letter — herdr's scrape pattern needs a digit immediately after the pointer, so a `1/y.` prefix would match nothing — and the configured letter remains a working alias.
+The numbers matter because they are what an external surface can scrape: herdr's Asks panel renders each numbered row as a button and answers by sending that digit, then `enter` — and digits are unaffected by input-method composition mode, which swallows letter keys.
+That covers every decision except deny with a reason: approve, approve for this session, deny, plus the both-directions grant on an ask that offers it — and on a forwarded ask, confirming the session grant opens a scope step (subagent-only or whole serving session) that a digit press cannot complete either.
+Deny with a reason opens a text editor that a digit press and `enter` cannot answer, so the reasoned denial stays in the terminal (a known limitation).
+Digits `1`–`9` are therefore reserved in `permissionDialogKeys` and cannot be remapped: the rendered number and the action it selects must never disagree, or a button labelled "Yes" could deny.
 Set `promptNotifications` (for example `["bell"]`) and the dialog also rings the terminal as it opens, so a session waiting on you in another tab or pane gets flagged.
 For an unattended run, set `promptTimeoutMs` and a prompt nobody answers within that window is denied, with the agent told nobody answered; by default a prompt waits indefinitely, and pressing any key stops the clock ([details](docs/configuration.md#unanswered-prompts)).
 A file-access ask that proves a single direction offers `b` as well, granting the session both directions instead of only the one the gate proved.

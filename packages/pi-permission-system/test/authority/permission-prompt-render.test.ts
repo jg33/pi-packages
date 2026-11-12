@@ -34,12 +34,12 @@ describe("decision step — ask_user visual language", () => {
     expect(lines[2]).toContain("Permission Required (Subagent)");
   });
 
-  it("marks the highlighted option with ❯ + bound key in accent+bold and indents the rest", () => {
+  it("marks the highlighted option with ❯ + its ordinal in accent+bold and indents the rest", () => {
     const lines = mountPrompt({ view: NOW }).render(120);
-    expect(lines).toContain(fakeTheme.fg("accent", fakeTheme.bold("❯ y. Yes")));
-    expect(lines).toContain("  s. Yes, for this session");
-    expect(lines).toContain("  n. No");
-    expect(lines).toContain("  r. No, provide reason");
+    expect(lines).toContain(fakeTheme.fg("accent", fakeTheme.bold("❯ 1. Yes")));
+    expect(lines).toContain("  2. Yes, for this session");
+    expect(lines).toContain("  3. No");
+    expect(lines).toContain("  4. No, provide reason");
     expect(strip(lines.join("\n"))).not.toContain("▶");
     expect(strip(lines.join("\n"))).not.toContain("(y)");
   });
@@ -48,34 +48,35 @@ describe("decision step — ask_user visual language", () => {
     const m = mountPrompt({ view: NOW });
     m.type(KEY.down);
     expect(m.render(120)).toContain(
-      fakeTheme.fg("accent", fakeTheme.bold("❯ s. Yes, for this session")),
+      fakeTheme.fg("accent", fakeTheme.bold("❯ 2. Yes, for this session")),
     );
   });
 
-  it("offers the both-directions row only when the ask supplies its label", () => {
+  it("numbers the both-directions row from the ask's own label", () => {
     const label = 'Yes, reads and writes to "/tmp/*"';
     expect(flat(mountPrompt({ view: NOW }).render(120))).not.toContain(label);
-    expect(
-      flat(
-        mountPrompt({
-          view: NOW,
-          options: { sessionWidth: { label } },
-        }).render(120),
-      ),
-    ).toContain(`b. ${label}`);
+    const lines = mountPrompt({
+      view: NOW,
+      options: { sessionWidth: { label } },
+    }).render(120);
+    expect(lines).toContain(`  3. ${label}`);
+    expect(lines).toContain("  4. No");
+    expect(lines).toContain("  5. No, provide reason");
   });
 
-  it("shows remapped keys in the key column", () => {
+  it("numbers rows by position, ignoring the configured key column", () => {
     const dialogKeys = {
-      approve: "1",
-      approveSession: "2",
-      approveSessionBoth: "3",
-      deny: "4",
-      denyWithReason: "5",
+      approve: "a",
+      approveSession: "c",
+      approveSessionBoth: "d",
+      deny: "e",
+      denyWithReason: "f",
     };
     const lines = mountPrompt({ view: { ...NOW, dialogKeys } }).render(120);
     expect(lines).toContain(fakeTheme.fg("accent", fakeTheme.bold("❯ 1. Yes")));
-    expect(lines).toContain("  4. No");
+    // Rows are numbered by position, not by the remapped character: on this
+    // narrow ask deny sits third, because the both-directions row is absent.
+    expect(lines).toContain("  3. No");
   });
 
   it("hint: ask_user wording, dim, truthful about double-press", () => {
@@ -165,7 +166,7 @@ describe("decision step — ask_user visual language", () => {
   it("still mounts inline", () => {
     expect(mountPrompt().custom).toHaveBeenCalledWith(expect.any(Function), {
       overlay: false,
-      blocked: { kind: "permission", message: "Permission Required" },
+      blocked: { kind: "permission", message: "approve bash: rm -rf /tmp/x" },
     });
   });
 });
@@ -238,7 +239,7 @@ describe("terminal-row-aware ask cap", () => {
     const lines = m.render(100);
     expect(lines.length).toBeLessThanOrEqual(30);
     const text = flat(lines);
-    expect(text).toContain("n. No");
+    expect(text).toContain("3. No");
     expect(text).toContain("Enter to select");
     expect(text).toContain("Ctrl+O for full request");
   });
@@ -276,5 +277,33 @@ describe("terminal-row-aware ask cap", () => {
       payload: { ...bashPayload(), evidence },
     }).render(100).length;
     expect(tall).toBeGreaterThan(short);
+  });
+});
+
+// herdr's Asks panel scrapes the screen with exactly this pattern
+// (~/.config/herdr-app/mods/tabs-asks/engine.js:58) and adopts the run as the
+// APPROVAL card's clickable options. A row that stops matching is a missing button.
+const HERDR_OPTION = /^\s*(❯\s*)?(\d{1,2})\.\s+(.*?)\s*$/;
+
+describe("herdr Asks-panel scrape contract", () => {
+  const wide = { sessionWidth: { label: "Yes, both directions for /tmp/*" } };
+
+  it("renders one scraper-matching row per visible action, numbered 1..n", () => {
+    const cases = [
+      { m: mountPrompt({ view: NOW }), expected: [1, 2, 3, 4] },
+      {
+        m: mountPrompt({ view: NOW, options: wide }),
+        expected: [1, 2, 3, 4, 5],
+      },
+    ];
+    for (const { m, expected } of cases) {
+      for (const width of [40, 80, 120]) {
+        const numbers = m.screen(width).flatMap((line) => {
+          const digit = HERDR_OPTION.exec(line)?.[2];
+          return digit === undefined ? [] : [Number(digit)];
+        });
+        expect(numbers).toEqual(expected);
+      }
+    }
   });
 });

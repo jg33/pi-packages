@@ -111,7 +111,7 @@ This clamp is deny-preserving and, like `yoloMode`, applied at composition; when
 | `permissionReviewLog`       | `true`   | Enables the permission request/denial review log at `logs/pi-permission-system-permission-review.jsonl`. Records bash command strings, masked only where a name binds the secret — see [Log file sensitivity](#log-file-sensitivity)         |
 | `yoloMode`                  | `false`  | Auto-approves `ask` results instead of prompting when yolo mode is enabled                                                                                                                                                                   |
 | `doublePressToConfirm`      | `true`   | Requires a confirming second press of a decision hotkey in the inline TUI dialog (see below). TUI sessions only; set to `false` for single-press.                                                                                            |
-| `permissionDialogKeys`      | —        | Remaps the inline TUI dialog's decision hotkeys (see below). One printable character per decision; omitted decisions keep `y` / `s` / `b` / `n` / `r`.                                                                                       |
+| `permissionDialogKeys`      | —        | Remaps the inline TUI dialog's decision hotkeys (see below). One printable character per decision; omitted decisions keep `y` / `s` / `b` / `n` / `r`. Digits `1`–`9` are reserved for the numbered rows and cannot be remapped.             |
 | `promptNotifications`       | `[]`     | Terminal notifications to emit when the inline TUI dialog opens: `"bell"`, `"osc9"`, `"osc777"` (see below). Empty for none.                                                                                                                 |
 | `forwardingTimeoutMs`       | `600000` | How long a subagent waits for the parent session to answer a forwarded permission request, in milliseconds. A child whose parent is not draining its inbox gives up in ~2 s regardless, whether that parent runs in this process or its own. |
 | `promptTimeoutMs`           | —        | How long a permission prompt, once shown, waits for an answer before it is dismissed and the request denied, in milliseconds. Unset (the default) means no timer. See [Unanswered prompts](#unanswered-prompts).                             |
@@ -131,7 +131,7 @@ No debug output is printed to the terminal.
 
 ### Inline permission dialog (TUI)
 
-In an interactive **TUI** session, an `ask` decision opens an inline keybind dialog with one-key shortcuts:
+In an interactive **TUI** session, an `ask` decision opens an inline keybind dialog with one-key shortcuts: Every option is numbered in the order shown; press the number, or the bound key.
 
 | Key | Action                                                            |
 | --- | ----------------------------------------------------------------- |
@@ -146,9 +146,17 @@ Every other ask shows the four options above without it.
 See [session-approvals.md](session-approvals.md#grant-direction) for what the two widths grant.
 
 Arrow keys / `j`/`k` move the highlight, `enter` confirms the highlighted option, and `esc` denies.
-The dialog is drawn with a bordered header and a ❯ option list, like Pi's own question dialogs; each row shows the key bound to it (the digits, if you remapped them), and the footer names the pending deadline when promptTimeoutMs is set.
-With `doublePressToConfirm` enabled (the default), a hotkey **arms** its action and shows a `Press y again to approve.` hint; press the same key again to commit.
+The dialog is drawn with a bordered header and a ❯ option list, like Pi's own question dialogs; each row shows its position number — `❯ 1. Yes`, `2. Yes, for this session`, and so on down the visible roster, with deny at `3.` on an ask that omits the both-directions grant and at `4.` on one that offers it — and pressing that number selects the row.
+The row no longer prints the key bound to it: herdr's scrape pattern requires a digit immediately after the pointer, so a `1/y.` prefix would match nothing.
+The number is the row's position, and the configured letter remains a working alias.
+The footer names the pending deadline when promptTimeoutMs is set.
+With `doublePressToConfirm` enabled (the default), a key **arms** its action and shows a `Press 1 again to approve.` hint — echoing the key you pressed; an arm started by `enter` instead names the bound key — press the same key again, or `enter`, to commit.
 Set `doublePressToConfirm` to `false` to commit on the first press.
+
+**Known limitation — deny with a reason is not answerable from herdr.**
+The deny-with-a-reason row (`4.`, or `5.` when the ask offers the both-directions grant) opens a text editor, and a digit press plus `enter` cannot supply a typed reason.
+So herdr's Asks panel covers every decision except this one: it renders each numbered row as a button and answers by sending that digit, then `enter` — approve, approve for this session, deny, plus the both-directions grant when the ask offers it — with the two exceptions that a forwarded ask's session grant then opens a scope step (subagent-only or whole serving session) that a digit press cannot complete, and that the reasoned denial stays in the terminal: pressing the reason row from the panel opens the reason editor and goes no further.
+This is a known limitation of the external surface, not a bug.
 
 #### Remapping the hotkeys
 
@@ -157,25 +165,29 @@ Set `permissionDialogKeys` to bind any decision to a different key:
 ```jsonc
 {
   "permissionDialogKeys": {
-    "approve": "1",
-    "approveSession": "2",
-    "approveSessionBoth": "3",
-    "deny": "4",
-    "denyWithReason": "5"
+    "approve": "a",
+    "approveSession": "f",
+    "approveSessionBoth": "w",
+    "deny": "d",
+    "denyWithReason": "x"
   }
 }
 ```
 
 The five decision names above are the only keys the map accepts, and each is optional — a decision you do not name keeps its default letter.
+Digits `1`–`9` cannot appear here at all (see the refusal list below); an example that once mapped `1`–`5` would now be refused entry by entry.
 
-This exists for input method editors.
-While an IME is composing — Chinese Pinyin or Wubi, Japanese, Korean — a letter keypress is consumed by the candidate buffer and never reaches the terminal, so `y` and `n` do nothing and the dialog looks frozen.
-The usual way out of a candidate popup is `esc`, which *does* reach the terminal and which this dialog reads as a denial, so a call you meant to approve gets refused.
-Digits are unaffected on essentially every layout, which is why `1`–`5` is the mapping to reach for.
+Remaps exist for muscle memory and old habits.
+The IME problem that used to motivate them is covered by the numbering instead: while an IME is composing — Chinese Pinyin or Wubi, Japanese, Korean — a letter keypress is consumed by the candidate buffer and never reaches the terminal, so `y` and `n` do nothing and the dialog looks frozen, and the usual way out of a candidate popup is `esc`, which *does* reach the terminal and which this dialog reads as a denial, so a call you meant to approve gets refused.
+Digits are unaffected on essentially every layout, and the numbered rows answer that case with no remap at all — which is also why digits are now reserved rather than remappable.
 
-Each value is a **single printable character**: a lowercase letter, a digit, or a symbol.
-Three things are refused:
+Each value is a **single printable character**: a lowercase letter, the digit `0`, or a symbol.
+Four things are refused:
 
+- A digit (`1`–`9`).
+  The rows print their position number, and the number pressed must always select the row it labels: with `{"deny": "1"}` row 1 would render `Yes` while pressing `1` denies — a button that lies about what it does.
+  Digits are the rows' own vocabulary and are reserved, so an entry naming one is refused with a message and that decision keeps its default.
+  **Behaviour change:** a digit binding written before this reservation stops applying — it is refused with the same message and silently falls back to the default letter.
 - `j` and `k`, which move the dialog's highlight — a decision bound to one would never fire.
 - An uppercase letter.
   Pi lowercases a key identifier, so `"Y"` would answer to a lowercase `y` rather than to the keystroke you asked for.
