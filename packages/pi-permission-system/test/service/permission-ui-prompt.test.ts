@@ -96,7 +96,9 @@ describe("buildUiPrompt", () => {
         },
       },
       evidence: [{ label: "full command", text: "secret-ish", detail: null }],
-      annotations: [modelGeneratedAnnotation("judge", "advisory")],
+      annotations: [
+        modelGeneratedAnnotation("ANNOTATION-MARKER", "ANNOTATION-MARKER"),
+      ],
     });
 
     const event = buildUiPrompt({
@@ -128,6 +130,8 @@ describe("buildUiPrompt", () => {
     expect(event).not.toHaveProperty("message");
     expect(event).not.toHaveProperty("evidence");
     expect(event).not.toHaveProperty("annotations");
+    // A populated slot, not a default-empty one: no other field can carry it.
+    expect(JSON.stringify(event)).not.toContain("ANNOTATION-MARKER");
   });
 
   it("uses explicit surface and value overrides in place of the derived projection", () => {

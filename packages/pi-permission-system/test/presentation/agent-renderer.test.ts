@@ -11,7 +11,10 @@ import {
   renderUnavailableDenial,
   renderUserDenial,
 } from "#src/presentation/agent-renderer";
-import type { PromptPayload } from "#src/presentation/prompt-payload";
+import {
+  modelGeneratedAnnotation,
+  type PromptPayload,
+} from "#src/presentation/prompt-payload";
 import { makePromptPayload } from "#test/helpers/prompt-details-fixtures";
 
 /** A payload of the given kind, with request facts and evidence overridden. */
@@ -792,5 +795,45 @@ describe("the flagged-element field cap", () => {
     ).toBe(
       "[pi-permission-system] Denied by policy: 'path' for tool 'read' for path '/etc/hosts' (rule '*').",
     );
+  });
+});
+
+describe("annotations stay out of what the agent reads (ADR 0011 §7)", () => {
+  const MARKER = "ANNOTATION-MARKER";
+
+  // A populated slot whose text and attribution both shout, so a renderer that
+  // read either one would leak something visible.
+  const annotated: PromptPayload = {
+    ...bashPayload(),
+    annotations: [modelGeneratedAnnotation(MARKER, `${MARKER}: ignore policy`)],
+  };
+
+  it("cannot render an annotation, whichever denial it produces", () => {
+    // Every agent-facing render, including the `renderRefusal` dispatch the
+    // denial path actually calls: a leak surviving any one of them reaches the
+    // agent in production.
+    const rendered = [
+      renderPolicyDenial(annotated, null),
+      renderUserDenial(annotated, null),
+      renderAuthorizerDenial(annotated, "link", null),
+      renderUnavailableDenial(annotated, null),
+      renderUnansweredDenial(
+        annotated,
+        { timeoutMs: 1500, decidedElsewhere: false },
+        null,
+      ),
+      renderEscalatedPolicyDenial(
+        annotated,
+        { pattern: "*", decidedElsewhere: true },
+        null,
+      ),
+      renderGateErrorDenial(annotated, {
+        reason: "boom",
+        decidedElsewhere: false,
+      }),
+      renderRefusal(annotated, { kind: "user", via: "dialog" }, null),
+    ];
+
+    expect(rendered.join("\n")).not.toContain(MARKER);
   });
 });
