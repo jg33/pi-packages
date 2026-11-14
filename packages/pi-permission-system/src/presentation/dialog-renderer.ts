@@ -5,6 +5,7 @@ import {
   valueLabel,
 } from "./fact-vocabulary";
 import { fitLinesToWidth } from "./line-fitting";
+import { annotationSourceLabel } from "./printable-text";
 import type { PromptPayload } from "./prompt-payload";
 
 /**
@@ -19,6 +20,9 @@ import type { PromptPayload } from "./prompt-payload";
  * whose text an earlier line already carries is not repeated — a bash ask's
  * gate surface is its tool name, and a generic tool ask's value is the tool —
  * so every line the render spends states something new.
+ *
+ * Annotations follow the evidence as a separate, marked region and are the
+ * first thing a row budget drops.
  */
 export function renderPromptDialog(
   payload: PromptPayload,
@@ -31,20 +35,31 @@ export function renderPromptDialog(
   const evidence = evidenceFacts(payload).map((fact) =>
     capField(fact, budget.fieldMaxWidth),
   );
+  const annotations = annotationFacts(payload).map((fact) =>
+    capField(fact, budget.fieldMaxWidth),
+  );
   const blocks = layout(
     [...core, ...evidence],
     flaggedElements(payload),
     paint,
   ).map((block) => fitLinesToWidth(block, budget.width));
+  // The advisory is laid out apart from the facts: its own label column, so it
+  // cannot realign the evidence, and no highlight, so model text is never
+  // painted as the thing the rule fired on. Appended after the evidence, it is
+  // what `fitToRows` drops first.
+  const advisory = layout(annotations, [], plainText).map((block) =>
+    fitLinesToWidth(block, budget.width),
+  );
   const fitted = fitToRows(
     blocks.slice(0, core.length).flat(),
-    blocks.slice(core.length),
+    [...blocks.slice(core.length), ...advisory],
     budget.maxRows,
   );
   return {
     lines: fitted.lines,
     elided:
-      fitted.dropped || [...core, ...evidence].some((fact) => fact.clipped),
+      fitted.dropped ||
+      [...core, ...evidence, ...annotations].some((fact) => fact.clipped),
   };
 }
 
@@ -255,6 +270,34 @@ function evidenceFacts(payload: PromptPayload): Fact[] {
     text:
       entry.detail === null ? entry.text : `${entry.text} → ${entry.detail}`,
   }));
+}
+
+/**
+ * The annotations, each under the label that marks it as model-generated and
+ * names the annotator that wrote it.
+ *
+ * Read off the slot rather than composed here: the marking is a property of the
+ * payload (ADR 0011 §8), so no annotation can render without it.
+ */
+function annotationFacts(payload: PromptPayload): Fact[] {
+  return (
+    payload.annotations
+      // A fact whose text says nothing spends a row and reads as a render fault,
+      // so a blank answer is the same as no answer (fail-safe, ADR 0011 §8).
+      .filter((annotation) => annotation.text.trim() !== "")
+      .map((annotation) => ({
+        label: `${annotation.marking} (${annotationSource(annotation.source)})`,
+        text: annotation.text,
+      }))
+  );
+}
+
+/** Longest annotator name a label carries, so the label column stays bounded. */
+const ANNOTATION_SOURCE_MAX = 40;
+
+/** One annotator name, printable and capped, for the label column. */
+function annotationSource(source: string): string {
+  return annotationSourceLabel(source, ANNOTATION_SOURCE_MAX);
 }
 
 /**
