@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { PayloadAnnotator } from "#src/presentation/annotation-runner";
 import {
   buildDirectionalSessionLabels,
   buildForwardedScopeLabels,
@@ -9,6 +10,10 @@ import {
   describePromptNotice,
   type NotificationSession,
 } from "#src/presentation/prompt-notification";
+import {
+  isRenderablePayload,
+  type PromptPayload,
+} from "#src/presentation/prompt-payload";
 import {
   emitUiPromptEvent,
   type PermissionEventBus,
@@ -28,6 +33,22 @@ import type {
 } from "./permission-prompt-component";
 import type { PromptPermissionDetails } from "./permission-prompter";
 
+/**
+ * What the terminal's own ceiling resolves to, so it is distinguishable from
+ * an annotated payload.
+ */
+const ANNOTATOR_CEILING = Symbol("annotator-ceiling");
+
+/**
+ * Slack above the runner's own deadline. `AnnotationRunner` resolves at
+ * `annotatorTimeoutMs`, so this ceiling only fires for an implementation that
+ * ignores the contract; the margin keeps a well-behaved runner from losing a
+ * race against its own deadline on a busy event loop. The guarantee: a broken
+ * annotator delays one ask by at most `annotatorTimeoutMs + 250` ms, and never
+ * blocks the next one.
+ */
+const ANNOTATOR_GUARD_GRACE_MS = 250;
+
 /** Dependencies required by {@link LocalUserAuthorizer}. */
 export interface LocalUserAuthorizerDeps {
   /** The active session's UI surface (select/input plus the inline `custom` dialog). */
@@ -44,6 +65,14 @@ export interface LocalUserAuthorizerDeps {
   requestPermissionDecision: typeof requestPermissionDecision;
   /** Read when each prompt opens, so a session named mid-session is picked up. */
   describeSession: () => NotificationSession;
+  /** Writes this node's annotations into the payload the human is shown (ADR 0011 §8). */
+  annotator: PayloadAnnotator;
+  /**
+   * The operator's annotator deadline, read live. The terminal uses it as the
+   * base for its own containment ceiling, so a misbehaving `annotator` cannot
+   * stall the ask beyond the configured wait.
+   */
+  getAnnotatorTimeoutMs: () => number;
 }
 
 /**
@@ -70,16 +99,21 @@ export class LocalUserAuthorizer implements TerminalAuthorizer {
   }
 
   /**
-   * Announce the imminent prompt, then show it.
+   * Annotate, announce, then show it.
    *
-   * Both live inside the queued region: `permissions:ui_prompt` is documented
-   * as firing immediately before the user-facing UI is invoked, so an emit at
-   * admission would alert a notification consumer for a dialog that is still
-   * minutes of deliberation away.
+   * All three live inside the queued region: `permissions:ui_prompt` is
+   * documented as firing immediately before the user-facing UI is invoked, so
+   * an emit at admission would alert a notification consumer for a dialog that
+   * is still minutes of deliberation away.
    */
-  private present(
+  private async present(
     details: PromptPermissionDetails,
   ): Promise<PermissionPromptDecision> {
+    // Annotated first, inside the queued region: the broadcast below is
+    // documented as firing immediately before the user-facing UI, and the
+    // payload the human sees is the only one that carries annotations — the
+    // broadcast stays built from the original `details` (ADR 0011 §6).
+    const payload = await this.annotated(details);
     emitUiPromptEvent(this.deps.events, buildUiPrompt(details));
     const title = details.forwarding
       ? "Permission Required (Subagent)"
@@ -96,9 +130,68 @@ export class LocalUserAuthorizer implements TerminalAuthorizer {
         ),
       },
       title,
-      details.payload,
+      payload,
       buildRequestOptions(details),
     );
+  }
+
+  /**
+   * The payload to show, or the gate's own payload when annotation fails.
+   *
+   * `PayloadAnnotator` is an interface, so nothing in its type promises that it
+   * settles, that it does not throw, or that it returns a payload at all — only
+   * `AnnotationRunner` does. An annotator that suppresses a permission prompt
+   * is the worst failure this feature can cause (ADR 0011 §8, "unchanged-prompt
+   * fallback"), so this terminal does not trust the implementation: a throw, a
+   * rejection, a promise still pending at the ceiling, and any result that
+   * `isRenderablePayload` rejects (wrong or copied `request`/`evidence`, a
+   * malformed annotations slot or member, a foreign marking) all fall back to
+   * the original payload, wholesale.
+   *
+   * One failure it cannot contain: an annotator that blocks the thread
+   * synchronously cannot be preempted — no timer can fire — so it can still
+   * stall the queue. Everything asynchronous is bounded.
+   *
+   * No failure is logged here: the runner owns the audit, and a second, quieter
+   * path would blur it.
+   */
+  private async annotated(
+    details: PromptPermissionDetails,
+  ): Promise<PromptPayload> {
+    try {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const ceiling = new Promise<typeof ANNOTATOR_CEILING>((resolve) => {
+        timer = setTimeout(
+          () => resolve(ANNOTATOR_CEILING),
+          this.deps.getAnnotatorTimeoutMs() + ANNOTATOR_GUARD_GRACE_MS,
+        );
+      });
+      try {
+        // `unknown`, because the interface's type is not a promise an
+        // arbitrary implementation keeps: the value is checked, not assumed.
+        const annotated: unknown = await Promise.race([
+          this.deps.annotator.annotate(details.payload, details.requestId),
+          ceiling,
+        ]);
+        // Validated, not just race-checked: the renderers traverse `request`,
+        // `evidence` and every annotation member, so a malformed result would
+        // throw inside `present` and lose the ask — the same outcome as a
+        // throw. All-or-nothing, see `isRenderablePayload`.
+        if (
+          annotated === ANNOTATOR_CEILING ||
+          !isRenderablePayload(annotated, details.payload)
+        ) {
+          return details.payload;
+        }
+        return annotated;
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch {
+      // Sync throw, rejection, or a broken timeout thunk: show the prompt as
+      // the gate built it rather than losing the ask.
+      return details.payload;
+    }
   }
 }
 

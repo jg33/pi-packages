@@ -51,6 +51,11 @@ import { pathFlavorForPlatform } from "#src/path/path-flavor";
 import { PermissionManager } from "#src/policy/permission-manager";
 import { PermissionResolver } from "#src/policy/permission-resolver";
 import { ResolverServingPolicy } from "#src/policy/serving-policy";
+import {
+  AnnotationRunner,
+  DEFAULT_ANNOTATOR_TIMEOUT_MS,
+} from "#src/presentation/annotation-runner";
+import { AnnotatorRegistry } from "#src/presentation/annotator-registry";
 import { resolveRenderBudget } from "#src/presentation/dialog-renderer";
 import { LocalPermissionsService } from "#src/service/permissions-service";
 import { PermissionServiceLifecycle } from "#src/service/service-lifecycle";
@@ -97,6 +102,16 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   // AuthorizerSelection's chain resolution, so a registration is visible to
   // composition.
   const authorizerRegistry = new AuthorizerRegistry();
+  // One registry instance, consumed today only by the runner's chain
+  // resolution. The intent is that it also backs the `registerAnnotator`
+  // service surface (Task 9), so a registration is visible to composition; until
+  // that lands nothing registers, so every configured name resolves
+  // unregistered and is skipped with one operator warning per name.
+  const annotatorRegistry = new AnnotatorRegistry();
+  // One reader for the deadline, so the runner's own bound and the terminal's
+  // containment ceiling cannot disagree.
+  const annotatorTimeoutMs = (): number =>
+    configStore.current().annotatorTimeoutMs ?? DEFAULT_ANNOTATOR_TIMEOUT_MS;
 
   // Both `configStore` and `session` are forward-declared so the logger's
   // lazy thunks can close over them without a cast or null-init holder.
@@ -187,6 +202,18 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     // operator once per name — the ask is decided without the judge they
     // asked for, and the review log alone never said so (#861).
     chainAudit: new AuthorizerChainAudit(logger),
+    // Runs only inside the local terminal, i.e. on the node that shows the
+    // prompt (ADR 0011 §8); resolved in config order, read live per ask. `log`
+    // is the session logger, not its raw writer: the writer *returns* an IO
+    // failure instead of throwing, so wiring it directly would lose the audit
+    // record and its warning silently.
+    annotator: new AnnotationRunner({
+      registry: annotatorRegistry,
+      getChain: () => configStore.current().annotatorChain ?? [],
+      getTimeoutMs: annotatorTimeoutMs,
+      log: logger,
+    }),
+    getAnnotatorTimeoutMs: annotatorTimeoutMs,
   });
 
   // Resolver composes the manager + session ruleset and owns the

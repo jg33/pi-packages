@@ -34,7 +34,23 @@ export interface AnnotationAuditLog {
   warn(message: string): void;
 }
 
-/** The seam `LocalUserAuthorizer` drives: the payload with this node's annotations in its slot. */
+/**
+ * The seam `LocalUserAuthorizer` drives: the payload with this node's
+ * annotations in its slot.
+ *
+ * The contract has an obligation beyond the result: an implementation **must
+ * always settle**, **must not reject**, and **must not exceed its own
+ * deadline** (`annotatorTimeoutMs`). `AnnotationRunner` does all three.
+ * `LocalUserAuthorizer` does not trust the type to keep that promise — it
+ * catches a throw or rejection, races the call against its own ceiling of
+ * `annotatorTimeoutMs + slack`, and falls back unless `isRenderablePayload`
+ * accepts the result (the renderers traverse `request`, `evidence` and every
+ * annotation member, so shape is part of readability). Every one of those cases
+ * shows the prompt unannotated, so a violating implementation costs one ask at
+ * most that extra latency; it cannot lose the ask or block the queue. The one
+ * exception is an annotator that blocks the thread synchronously: no timer can
+ * fire while it runs, so only that case can still stall the queue.
+ */
 export interface PayloadAnnotator {
   /**
    * The payload to show. Returns `payload` itself when nothing was added, so

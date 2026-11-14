@@ -322,6 +322,41 @@ function asPromptEvidence(value: unknown): PromptEvidence | undefined {
   };
 }
 
+/**
+ * Narrow a value an annotator returned to a payload the renderers can read
+ * without throwing: same `request` and `evidence` objects as the gate built,
+ * and an annotations array whose members carry string `text`, string `source`
+ * and this package's `marking`.
+ *
+ * Reference identity is deliberate: `AnnotationRunner` authors only the slot
+ * (`{ ...own, annotations }`, where `own` is the gate's payload or a spread of
+ * it), so a well-behaved annotator returns the gate's own `request` and
+ * `evidence`. A copy that merely deep-equals them is not this node's payload,
+ * and the renderer reads both by traversal.
+ *
+ * All-or-nothing, like `asPromptPayload`: one junk member makes the whole result
+ * unusable. `kind` is not checked — the renderers do not throw without it.
+ */
+export function isRenderablePayload(
+  value: unknown,
+  gate: PromptPayload,
+): value is PromptPayload {
+  const candidate = asObject(value);
+  if (!candidate) return false;
+  if (candidate.request !== gate.request) return false;
+  if (candidate.evidence !== gate.evidence) return false;
+  if (!Array.isArray(candidate.annotations)) return false;
+  return candidate.annotations.every((member) => {
+    const annotation = asObject(member);
+    return (
+      annotation !== undefined &&
+      typeof annotation.text === "string" &&
+      typeof annotation.source === "string" &&
+      annotation.marking === MODEL_GENERATED
+    );
+  });
+}
+
 function asPromptAnnotation(value: unknown): PromptAnnotation | undefined {
   const candidate = asObject(value);
   if (

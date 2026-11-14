@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { DebugReviewLogger } from "#src/logging/session-logger";
+import type { PayloadAnnotator } from "#src/presentation/annotation-runner";
 import type { AuthorizerLog, PermissionQuery } from "#src/service";
 import type { PermissionEventBus } from "#src/service/permission-events";
 import { ParentAuthorizer } from "./approval-escalator";
@@ -135,6 +136,10 @@ export interface AuthorizerSelectionDeps {
   serving: TargetServingLookup;
   /** The forwarding timeout, read live so a config edit applies to the next ask. */
   getForwardingTimeoutMs: () => number;
+  /** Writes this node's annotations into the payload a local prompt shows; threaded into `LocalUserAuthorizer`. */
+  annotator: PayloadAnnotator;
+  /** The operator's annotator deadline, read live; the terminal derives its containment ceiling from it. */
+  getAnnotatorTimeoutMs: () => number;
   logger: DebugReviewLogger;
 }
 
@@ -186,6 +191,8 @@ export function selectAuthorizer(
         dialogs: deps.dialogs,
         getPromptPreferences: deps.getPromptPreferences,
         requestPermissionDecision: deps.requestPermissionDecision,
+        annotator: deps.annotator,
+        getAnnotatorTimeoutMs: deps.getAnnotatorTimeoutMs,
         describeSession: () => ({
           name: ctx.sessionManager.getSessionName(),
           cwd: ctx.cwd,

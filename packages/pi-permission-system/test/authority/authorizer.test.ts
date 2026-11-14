@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { ParentAuthorizer } from "#src/authority/approval-escalator";
@@ -10,12 +13,14 @@ import type { TargetServingLookup } from "#src/authority/forwarding-liveness";
 import { LocalUserAuthorizer } from "#src/authority/local-user-authorizer";
 import { SubagentDetection } from "#src/authority/subagent-detection";
 import { posixPathFlavor } from "#src/path/path-flavor";
+import type { PromptPayload } from "#src/presentation/prompt-payload";
 import {
   makeAuthorizerSelectionDeps as makeDeps,
   makeDetection,
   neutralizeSubagentEnvHints,
 } from "#test/helpers/authorizer-fixtures";
 import { makeSubagentRegistry } from "#test/helpers/forwarding-fixtures";
+import { makePromptDetails } from "#test/helpers/prompt-details-fixtures";
 
 neutralizeSubagentEnvHints();
 
@@ -240,5 +245,41 @@ describe("selectAuthorizer", () => {
       );
       expect(authority.terminal).toBeInstanceOf(NoForwardingParentAuthorizer);
     });
+  });
+});
+
+describe("selectAuthorizer — annotations stay on the serving node", () => {
+  it("never annotates an ask the relaying terminal actually handles", async () => {
+    vi.stubEnv("PI_SUBAGENT_PARENT_SESSION", "lead-session");
+    const forwardingDir = mkdtempSync(join(tmpdir(), "ps-relay-ask-"));
+    try {
+      const annotate = vi.fn((payload: PromptPayload) =>
+        Promise.resolve(payload),
+      );
+      const deps = makeDeps({
+        detection: makeDetection(true),
+        serving: makeServing(true),
+        forwardingDir,
+        // Give up on the parent quickly; the point is the ask path, not the wait.
+        getForwardingTimeoutMs: () => 1,
+        annotator: { annotate },
+      });
+
+      const authority = selectAuthorizer(makeCtx(true), deps);
+      expect(authority.terminal).toBeInstanceOf(ParentAuthorizer);
+
+      // Drive a real ask through the relaying terminal: it forwards and waits.
+      const decision = await authority.terminal.authorize(
+        makePromptDetails({ requestId: "req-relay" }),
+      );
+
+      expect(decision.approved).toBe(false);
+      // A relaying node has no human: the parent's node annotates, not this one.
+      // `buildParentAuthorizer` takes no annotator, so this is structural, but
+      // the assertion fails if a relaying ask ever reaches one.
+      expect(annotate).not.toHaveBeenCalled();
+    } finally {
+      rmSync(forwardingDir, { recursive: true, force: true });
+    }
   });
 });
