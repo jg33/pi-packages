@@ -3,6 +3,7 @@ import type { AccessIntent } from "#src/access-intent/access-intent";
 import { AuthorizerRegistry } from "#src/authority/authorizer-registry";
 import { posixPathFlavor } from "#src/path/path-flavor";
 import { PathNormalizer } from "#src/path/path-normalizer";
+import { AnnotatorRegistry } from "#src/presentation/annotator-registry";
 import type { PermissionsService } from "#src/service";
 import {
   getPermissionsService,
@@ -229,6 +230,7 @@ describe("service round-trip through the keyed locator", () => {
         new ToolInputFormatterRegistry(),
         new ToolAccessExtractorRegistry(),
         new AuthorizerRegistry(),
+        new AnnotatorRegistry(),
       ),
     );
   }

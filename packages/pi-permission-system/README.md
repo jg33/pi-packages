@@ -149,6 +149,10 @@ A downstream extension registers a link via `getPermissionsService(sessionId).re
 A subagent's ask is reviewed by the chain of the session serving it, one hop up, rather than inside the subagent — see the same section.
 [`@gotgenes/pi-permission-model-judge`](https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-model-judge) is a first-party reference implementation of such a link — a deny-first reviewer that auto-denies mistyped out-of-directory paths.
 
+The optional `annotatorChain` field names registered **prompt annotators** — downstream functions that return advisory text, such as a plain-language explanation of the command.
+A downstream extension registers one via `getPermissionsService(sessionId).registerAnnotator(name, annotator)`; registration alone shows nothing (opt-in), the prompt labels the text `model-generated (<name>)` below the evidence, and an annotation can never allow, deny, defer, or suppress the ask.
+An annotator that declines, throws, or misses the shared `annotatorTimeoutMs` deadline adds nothing, and a configured name with no registration is skipped with one warning — see [docs/configuration.md](docs/configuration.md#prompt-annotations).
+
 For the full reference — all surfaces, runtime knobs, per-agent overrides, merge semantics, and common recipes — see [docs/configuration.md](docs/configuration.md).
 
 ## Downstream packages

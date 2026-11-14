@@ -26,7 +26,7 @@ export interface PermissionSystemExtensionConfig {
   forwardingTimeoutMs?: number;
   /** How long a shown permission prompt waits for an answer before denying, in ms. Absent means no timer. */
   promptTimeoutMs?: number;
-  /** Max rows a permission prompt renders before eliding its evidence. Defaults to 24. */
+  /** Max rows a permission prompt renders before eliding its annotations, then its evidence. Defaults to 24. */
   promptMaxRows?: number;
   /** Max characters of any one field shown in a permission prompt. Defaults to 400. */
   promptFieldMaxWidth?: number;

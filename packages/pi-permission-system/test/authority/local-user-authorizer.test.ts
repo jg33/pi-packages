@@ -843,6 +843,36 @@ describe("LocalUserAuthorizer — a broken annotator cannot lose the ask", () =>
     expect(vi.mocked(decisionFn).mock.calls[0]?.[2]).toBe(details.payload);
   });
 
+  it("records a clone failure and still decides the ask once", async () => {
+    const log = makeAnnotationLog();
+    const registry = new AnnotatorRegistry();
+    registry.register("echo", () => "note");
+    const payload = makePromptPayload();
+    // A function is not structured-cloneable; inject one so the runner's own
+    // clone, inside `consult`'s try, is what fails.
+    (payload.request as unknown as Record<string, unknown>).value = () =>
+      "uncloneable";
+    const { deps, decisionFn } = makeDeps({
+      annotator: new AnnotationRunner({
+        registry,
+        getChain: () => ["echo"],
+        getTimeoutMs: () => 1000,
+        log,
+      }),
+    });
+    const details = makeDetails({ payload });
+
+    await new LocalUserAuthorizer(deps).authorize(details);
+
+    expect(decisionFn).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(decisionFn).mock.calls[0]?.[2]).toBe(details.payload);
+    expect(log.review).toHaveBeenCalledWith("annotator_failed", {
+      requestId: "req-123",
+      name: "echo",
+      error: "DataCloneError",
+    });
+  });
+
   it("shows the prompt when the annotator never settles", async () => {
     vi.useFakeTimers();
     try {

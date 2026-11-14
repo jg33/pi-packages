@@ -115,7 +115,7 @@ This clamp is deny-preserving and, like `yoloMode`, applied at composition; when
 | `promptNotifications`       | `[]`     | Terminal notifications to emit when the inline TUI dialog opens: `"bell"`, `"osc9"`, `"osc777"` (see below). Empty for none.                                                                                                                 |
 | `forwardingTimeoutMs`       | `600000` | How long a subagent waits for the parent session to answer a forwarded permission request, in milliseconds. A child whose parent is not draining its inbox gives up in ~2 s regardless, whether that parent runs in this process or its own. |
 | `promptTimeoutMs`           | —        | How long a permission prompt, once shown, waits for an answer before it is dismissed and the request denied, in milliseconds. Unset (the default) means no timer. See [Unanswered prompts](#unanswered-prompts).                             |
-| `promptMaxRows`             | `24`     | Max rows a permission prompt renders before eliding its evidence. The request's own facts are never elided by this budget; `Ctrl+O` expands the prompt to the complete request.                                                              |
+| `promptMaxRows`             | `24`     | Max rows a permission prompt renders before eliding its annotations, then its evidence. The request's own facts are never elided by this budget; `Ctrl+O` expands the prompt to the complete request.                                                     |
 | `promptFieldMaxWidth`       | `400`    | Max characters of any one field shown in a permission prompt. This is what bounds a single long field (a here-string command, say) that would otherwise fill the prompt through wrapping.                                                    |
 | `reviewLogFieldMaxWidth`    | `1000`   | Max characters of any one value written to the review log. A longer value is stored shortened, marked with an ellipsis. Raise it to keep longer values; this is a length bound, not redaction.                                               |
 | `toolInputPreviewMaxLength` | —        | **Deprecated and ignored.** Superseded by `promptMaxRows` / `promptFieldMaxWidth`. Still accepted so an existing config is not rejected, but the value no longer applies; setting it logs a warning.                                         |
@@ -283,7 +283,7 @@ The prompt renders one fact per line, with the requesting agent (and, for a forw
 Those facts are always present: a budget may shorten a long one, never drop it.
 A fact the line above already states is not repeated — a bash ask shows `tool : bash` without a second `surface : bash` line, and a path ask's `path :` line names the surface itself.
 
-Everything else is evidence — the full command a gated sub-command came from, the working directory a path escaped, the tool-input preview — and it is what gives way when the render does not fit.
+Everything else is evidence — the full command a gated sub-command came from, the working directory a path escaped, the tool-input preview — and it is what gives way when the render does not fit, after the model-generated annotations, which give way first.
 A shortened field or a dropped entry is marked with an ellipsis, and `Ctrl+O` shows the complete request.
 Raise `promptMaxRows` to see more evidence inline; raise `promptFieldMaxWidth` to see more of a long command.
 
@@ -399,6 +399,41 @@ The details' `accessIntent` carries the gate surface the rule fired on and, on a
 Registration returns a disposer, and only one link may hold a given name.
 Register in every session without branching: a session that relays its asks accepts the link and records `authorizer_link_vacant` rather than refusing it.
 For a complete working example, see [`@gotgenes/pi-permission-model-judge`](https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-model-judge): it registers a `model-judge` link on `permissions:ready` that reviews `external_directory` asks and auto-denies mistyped paths with a corrective reason.
+
+---
+
+### Prompt annotations
+
+A downstream extension can register a **prompt annotator**: a function that sees the ask and returns a short piece of advisory text, such as a plain-language explanation of a command.
+The permission prompt shows that text under a `model-generated (<name>)` label, below the evidence, so it is never mistaken for a fact about the request.
+
+`annotatorChain` is the ordered list of annotator names to consult:
+
+```jsonc
+{
+  "annotatorChain": ["explainer"],
+  "annotatorTimeoutMs": 1500
+}
+```
+
+Four invariants govern it:
+
+1. **Advisory only.**
+   An annotation can never allow, deny, defer, or suppress the ask.
+   It is a different kind of value from a chain link's verdict, and the types do not let one stand in for the other.
+2. **A missing annotator is skipped fail-safe, and you are told.**
+   A name with no registered annotator is skipped and the prompt is shown unchanged.
+   The skip is recorded in the review log as `annotator_chain_unregistered_link` for every prompt, and raises one warning per name.
+3. **Registration alone shows nothing.**
+   Installing an annotator extension gives it nothing; it runs only when you name it here, in this order.
+4. **Slow or broken annotators cost nothing but time.**
+   An annotator that declines, throws, or has not answered within `annotatorTimeoutMs` adds nothing, and the prompt is shown as it would be without it.
+   The deadline covers the whole chain, so an opted-in prompt is delayed by at most `annotatorTimeoutMs`, with a 250 ms guard grace (`annotatorTimeoutMs + 250 ms` in the worst case, for an implementation that ignores its own deadline); with no annotator configured and registered, nothing waits.
+
+An annotation is the first thing a row budget drops, ahead of the supporting evidence; the request's own facts are never dropped.
+An annotation is shown only in the prompt on the session that shows it.
+It is never sent to the agent, written to the review log, or broadcast on `permissions:ui_prompt`.
+A subagent's forwarded ask is annotated by the session that serves it; annotations a child sends are discarded.
 
 ---
 

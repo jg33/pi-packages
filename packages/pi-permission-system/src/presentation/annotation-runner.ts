@@ -50,6 +50,14 @@ export interface AnnotationAuditLog {
  * most that extra latency; it cannot lose the ask or block the queue. The one
  * exception is an annotator that blocks the thread synchronously: no timer can
  * fire while it runs, so only that case can still stall the queue.
+ *
+ * An implementation **must not mutate the payload it is given**. `AnnotationRunner`
+ * hands each annotator its own clone, so a mutation cannot reach another
+ * annotator, but that is where the defence ends: `isRenderablePayload` checks
+ * `request` and `evidence` by identity, so an in-place mutation still passes it,
+ * and the mutated objects are the ones the dialog and the `permissions:ui_prompt`
+ * broadcast show. Mutation is therefore undetectable at this seam and is not
+ * defended in code; it is a contract on the implementation, not a runtime check.
  */
 export interface PayloadAnnotator {
   /**

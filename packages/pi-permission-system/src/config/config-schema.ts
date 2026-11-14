@@ -507,9 +507,9 @@ export const unifiedConfigSchema = z
     }),
     promptMaxRows: z.number().int().min(1).optional().meta({
       description:
-        "Maximum rows a permission prompt renders before eliding its evidence. Omit to use the default (24).",
+        "Maximum rows a permission prompt renders before eliding annotations, then evidence. Omit to use the default (24).",
       markdownDescription:
-        "Maximum rows a permission prompt renders before eliding its evidence.\n\nOmit to use the default (24). The request's own facts — the requesting agent, the tool, the matched rule, the decision-relevant value — are never elided by this budget; what gives way is the supporting evidence, and `Ctrl+O` expands the prompt to the complete request.",
+        "Maximum rows a permission prompt renders before eliding its annotations, then its evidence.\n\nOmit to use the default (24). The request's own facts — the requesting agent, the tool, the matched rule, the decision-relevant value — are never elided by this budget; what gives way first is the model-generated annotations, then the supporting evidence, and `Ctrl+O` expands the prompt to the complete request.",
       default: 24,
     }),
     promptFieldMaxWidth: z.number().int().min(1).optional().meta({
@@ -580,7 +580,7 @@ export const unifiedConfigSchema = z
       .optional()
       .meta({
         description: `How long a permission prompt waits for its annotators before it is shown without the ones still pending, in milliseconds. Omit to use the default (${DEFAULT_ANNOTATOR_TIMEOUT_MS}). The deadline covers the whole annotator chain, not each annotator.`,
-        markdownDescription: `How long a permission prompt waits for its annotators before it is shown without the ones still pending, in milliseconds.\n\nOmit to use the default (\`${DEFAULT_ANNOTATOR_TIMEOUT_MS}\`). The deadline covers the whole \`annotatorChain\` \u2014 annotators run together \u2014 so the prompt is delayed by at most this long, and only when an annotator is configured and registered. An annotator that has not answered by then is abandoned and its late answer is discarded. This is unrelated to \`promptTimeoutMs\`, which denies an unanswered prompt.`,
+        markdownDescription: `How long a permission prompt waits for its annotators before it is shown without the ones still pending, in milliseconds.\n\nOmit to use the default (\`${DEFAULT_ANNOTATOR_TIMEOUT_MS}\`). The deadline covers the whole \`annotatorChain\` \u2014 annotators run together \u2014 so the prompt is delayed by at most this long, plus a 250 ms guard grace (\`annotatorTimeoutMs + 250 ms\` in the worst case, for an implementation that ignores its own deadline), and only when an annotator is configured and registered. An annotator that has not answered by then is abandoned and its late answer is discarded. This is unrelated to \`promptTimeoutMs\`, which denies an unanswered prompt.`,
         default: DEFAULT_ANNOTATOR_TIMEOUT_MS,
       }),
     permission: permissionSchema.optional(),

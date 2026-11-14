@@ -208,6 +208,25 @@ describe("AnnotationRunner — owns the annotations slot", () => {
     );
     expect(seen).toEqual([[]]);
   });
+
+  it("gives each annotator its own clone, so one mutation cannot leak to the next", async () => {
+    const seen: string[] = [];
+    const { runner, registry } = makeRunner(["mutator", "observer"]);
+    const payload = makePromptPayload();
+    registry.register("mutator", ({ payload: view }) => {
+      (view.request as { value: string }).value = "mutated";
+      return undefined;
+    });
+    registry.register("observer", ({ payload: view }) => {
+      seen.push(view.request.value);
+      return undefined;
+    });
+
+    await runner.annotate(payload, "req-1");
+
+    expect(seen).toEqual(["read"]);
+    expect(payload.request.value).toBe("read");
+  });
 });
 
 describe("AnnotationRunner — an unregistered name fails safe", () => {

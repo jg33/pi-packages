@@ -102,11 +102,9 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   // AuthorizerSelection's chain resolution, so a registration is visible to
   // composition.
   const authorizerRegistry = new AuthorizerRegistry();
-  // One registry instance, consumed today only by the runner's chain
-  // resolution. The intent is that it also backs the `registerAnnotator`
-  // service surface (Task 9), so a registration is visible to composition; until
-  // that lands nothing registers, so every configured name resolves
-  // unregistered and is skipped with one operator warning per name.
+  // One registry instance backs both the registerAnnotator service surface and
+  // the AnnotationRunner's chain resolution, so a registration is visible to
+  // composition.
   const annotatorRegistry = new AnnotatorRegistry();
   // One reader for the deadline, so the runner's own bound and the terminal's
   // containment ceiling cannot disagree.
@@ -300,6 +298,7 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
       authorizerSelection,
       logger,
     ),
+    annotatorRegistry,
   );
 
   // Subscribe to @gotgenes/pi-subagents' child lifecycle events so child

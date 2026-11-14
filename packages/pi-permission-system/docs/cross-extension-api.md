@@ -114,6 +114,8 @@ interface PermissionsService {
 }
 ```
 
+The registration seams that return a disposer — `registerAuthorizer` and `registerAnnotator` — are documented in their own sections below; both throw on a duplicate name and run only on the node that serves the ask.
+
 #### `checkPermission`
 
 | Parameter   | Required | Description                                                                              |
@@ -327,6 +329,25 @@ The permission system does exactly that internally: a subagent child that is mis
 
 There is deliberately **no** equivalent reader for `registerAuthorizer`.
 A chain link returns a verdict, and live authority converges at the adjudicating node ([ADR 0007] §7) — inheriting one would run authority an operator's own extension exclusion removed.
+
+#### `registerAnnotator`
+
+```typescript
+registerAnnotator(
+  name: string,
+  annotator: Annotator,
+): () => void
+```
+
+Offers a named prompt annotator.
+It receives `{ payload, signal }` and returns the advisory text to show, or `undefined` to decline.
+The prompt shows it labelled `model-generated (<name>)`; the label and attribution are stamped by this package.
+The return type cannot express a verdict, so an annotator cannot influence the decision.
+
+Registration alone shows nothing: the operator must name the annotator in `annotatorChain`.
+A name registered twice throws; the returned disposer unregisters it.
+Like `registerAuthorizer`, it has no reader, because it runs only on the node that shows the prompt.
+See [Prompt annotations](configuration.md#prompt-annotations).
 
 #### Subagent session registration
 
@@ -568,8 +589,10 @@ That guarantee is what makes the ready event alone a sufficient registration sit
 A new session generation (`/reload`, `/new`, `/resume`) starts the cycle over: one emission at `session_start`, one at the first turn that follows.
 
 Guard your registration on the disposer you stored, as the example below does.
-An unguarded handler that calls `registerAuthorizer`, `registerToolInputFormatter`, or `registerToolAccessExtractor` on every emission hits the duplicate-registration throw on the second one.
+An unguarded handler that calls `registerAuthorizer`, `registerAnnotator`, `registerToolInputFormatter`, or `registerToolAccessExtractor` on every emission hits the duplicate-registration throw on the second one.
 That throw is caught by Pi's event bus and reported on stderr — your first registration stays live — but the noise is avoidable, and it was already reachable before the latch existed, since `/reload` re-runs `session_start`.
+
+A node that never serves prompts (a relaying subagent) accepts and stores an annotator registration inertly: it has no `authorizer_link_vacant` analogue, because the annotator simply never runs where no prompt is shown, and the serving node runs its own chain.
 
 The payload carries plain facts about the node that emitted it, never a live capability: the bus announces, the locator provides.
 It carries no `protocolVersion` — the broadcast contract is defined by the published types plus package semver.

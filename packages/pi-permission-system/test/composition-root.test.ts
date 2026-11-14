@@ -51,6 +51,7 @@ import {
 import { DEFAULT_EXTENSION_CONFIG } from "#src/config/extension-config";
 import { SESSION_ENDED_REASON } from "#src/handlers/lifecycle";
 import piPermissionSystemExtension from "#src/index";
+import { unregisteredAnnotatorMessage } from "#src/presentation/annotation-runner";
 import { getPermissionsService } from "#src/service";
 import {
   PERMISSIONS_READY_CHANNEL,
@@ -190,12 +191,17 @@ function makeChildCtx(cwd: string, sessionId: string): unknown {
  * approves every prompt. The ask-prompt message (which embeds the tool-input
  * preview) is the first line of the select title.
  */
-function makeUiCtx(cwd: string, capturedTitles: string[]): { ctx: unknown } {
+function makeUiCtx(
+  cwd: string,
+  capturedTitles: string[],
+  notified: string[] = [],
+): { ctx: unknown } {
   const ctx = makeBaseCtx(cwd, "ui-session", {
     select: async (title: string): Promise<string | undefined> => {
       capturedTitles.push(title);
       return "Yes";
     },
+    notify: (message: string) => notified.push(message),
   });
   return { ctx };
 }
@@ -1268,6 +1274,153 @@ describe("service and chain share one authorizer registry", () => {
     // the ask reached the approving UI terminal.
     expect(result.block).toBeUndefined();
     expect(capturedTitles).toHaveLength(1);
+
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+describe("service and annotator chain share one annotator registry", () => {
+  // The annotator registered through the published service must be consulted
+  // by the live ask when the operator names it in annotatorChain, proving the
+  // registerAnnotator surface and the runner reference the one registry the
+  // factory created.
+  it("shows a service-registered, config-named annotator's text, labelled model-generated", async () => {
+    writeGlobalConfig({
+      permission: { "*": "ask" },
+      annotatorChain: ["echo"],
+    });
+
+    const cwd = mkdtempSync(join(tmpdir(), "pi-perm-annot-cwd-"));
+    const pi = makeFakePi({ toolNames: ["demo"] });
+    piPermissionSystemExtension(pi as unknown as ExtensionAPI);
+
+    const capturedTitles: string[] = [];
+    const { ctx } = makeUiCtx(cwd, capturedTitles);
+    await fireSessionStart(pi, ctx);
+
+    getPermissionsService("ui-session")!.registerAnnotator(
+      "echo",
+      () => "routine demo call",
+    );
+
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-1", input: {} },
+      ctx,
+    );
+
+    expect(capturedTitles).toHaveLength(1);
+    expect(capturedTitles[0]).toContain(
+      "model-generated (echo) : routine demo call",
+    );
+
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("ignores a registered annotator the operator did not name (opt-in)", async () => {
+    writeGlobalConfig({ permission: { "*": "ask" } }); // annotatorChain omitted
+
+    const cwd = mkdtempSync(join(tmpdir(), "pi-perm-annot-optin-"));
+    const pi = makeFakePi({ toolNames: ["demo"] });
+    piPermissionSystemExtension(pi as unknown as ExtensionAPI);
+
+    const capturedTitles: string[] = [];
+    const { ctx } = makeUiCtx(cwd, capturedTitles);
+    await fireSessionStart(pi, ctx);
+
+    getPermissionsService("ui-session")!.registerAnnotator(
+      "echo",
+      () => "routine demo call",
+    );
+
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-2", input: {} },
+      ctx,
+    );
+
+    expect(capturedTitles).toHaveLength(1);
+    expect(capturedTitles[0]).not.toContain("model-generated");
+
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("shows the prompt unchanged and records the skip when a configured name is unregistered", async () => {
+    writeGlobalConfig({
+      permission: { "*": "ask" },
+      annotatorChain: ["ghost"],
+    });
+
+    const cwd = mkdtempSync(join(tmpdir(), "pi-perm-annot-ghost-"));
+    const pi = makeFakePi({ toolNames: ["demo"] });
+    piPermissionSystemExtension(pi as unknown as ExtensionAPI);
+
+    const capturedTitles: string[] = [];
+    const notified: string[] = [];
+    const { ctx } = makeUiCtx(cwd, capturedTitles, notified);
+    await fireSessionStart(pi, ctx);
+
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-3", input: {} },
+      ctx,
+    );
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-3-repeat", input: {} },
+      ctx,
+    );
+
+    // More prompting, never less: the human was still asked, with no annotation.
+    expect(capturedTitles).toHaveLength(2);
+    expect(
+      capturedTitles.every((title) => !title.includes("model-generated")),
+    ).toBe(true);
+    expect(
+      readReviewLog().filter(
+        (entry) => entry.event === "annotator_chain_unregistered_link",
+      ),
+    ).toHaveLength(2);
+    // One warning per configured name, not one per prompt: the second prompt
+    // hits the same latched name and stays quiet.
+    expect(notified).toEqual([unregisteredAnnotatorMessage("ghost")]);
+
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("drops the annotation once the registered disposer runs", async () => {
+    writeGlobalConfig({
+      permission: { "*": "ask" },
+      annotatorChain: ["echo"],
+    });
+
+    const cwd = mkdtempSync(join(tmpdir(), "pi-perm-annot-dispose-"));
+    const pi = makeFakePi({ toolNames: ["demo"] });
+    piPermissionSystemExtension(pi as unknown as ExtensionAPI);
+
+    const capturedTitles: string[] = [];
+    const { ctx } = makeUiCtx(cwd, capturedTitles);
+    await fireSessionStart(pi, ctx);
+
+    const dispose = getPermissionsService("ui-session")!.registerAnnotator(
+      "echo",
+      () => "routine demo call",
+    );
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-4", input: {} },
+      ctx,
+    );
+    expect(capturedTitles[0]).toContain("model-generated");
+
+    dispose();
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-5", input: {} },
+      ctx,
+    );
+    expect(capturedTitles).toHaveLength(2);
+    expect(capturedTitles[1]).not.toContain("model-generated");
 
     rmSync(cwd, { recursive: true, force: true });
   });

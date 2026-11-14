@@ -6,6 +6,10 @@ import { buildAccessIntentForSurface } from "#src/access-intent/input-normalizer
 import type { Authorizer } from "#src/authority/authorizer";
 import type { AuthorizerRegistrar } from "#src/authority/authorizer-registry";
 import type { PathNormalizer } from "#src/path/path-normalizer";
+import type {
+  Annotator,
+  AnnotatorRegistrar,
+} from "#src/presentation/annotator-registry";
 import type { PermissionsService } from "#src/service";
 import type {
   ToolAccessExtractor,
@@ -55,6 +59,7 @@ export class LocalPermissionsService implements PermissionsService {
     private readonly accessExtractorRegistry: ToolAccessExtractorRegistrar &
       ToolAccessExtractorLookup,
     private readonly authorizerRegistry: AuthorizerRegistrar,
+    private readonly annotatorRegistry: AnnotatorRegistrar,
   ) {}
 
   checkPermission(
@@ -130,5 +135,12 @@ export class LocalPermissionsService implements PermissionsService {
     authorize: Authorizer["authorize"],
   ): ReturnType<PermissionsService["registerAuthorizer"]> {
     return this.authorizerRegistry.register(name, authorize);
+  }
+
+  registerAnnotator(
+    name: string,
+    annotator: Annotator,
+  ): ReturnType<PermissionsService["registerAnnotator"]> {
+    return this.annotatorRegistry.register(name, annotator);
   }
 }
