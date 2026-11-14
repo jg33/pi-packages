@@ -23,6 +23,15 @@ export const PERMISSIONS_SCHEMA_URL =
  */
 const MAX_CONFIG_ARRAY_ITEMS = 1000;
 
+/**
+ * How long a prompt waits for `annotatorChain` when `annotatorTimeoutMs` is not
+ * configured. Lives here, not in the runner: a config default belongs to the
+ * config layer, and the generated schema must stay importable by the generator
+ * (`node --experimental-strip-types` cannot resolve this package's `#src`
+ * alias).
+ */
+export const DEFAULT_ANNOTATOR_TIMEOUT_MS = 1500;
+
 const permissionStateSchema = z
   .union([
     z.literal("allow").meta({
@@ -564,13 +573,16 @@ export const unifiedConfigSchema = z
           "Ordered names of registered **prompt annotators** (e.g. a model that explains the command) to consult when a permission prompt is about to be shown.\n\nAn annotator returns advisory text that the prompt shows under a `model-generated (<name>)` label, below the evidence. Three invariants govern it:\n\n- **Advisory only.** An annotation can never allow, deny, defer, or suppress the ask; the prompt and its decision are unchanged. It is not shown to the agent, written to the review log, or broadcast on `permissions:ui_prompt`.\n- **Fail-safe.** A name with no registered annotator is skipped with a warning, and an annotator that declines, throws, or has not answered within `annotatorTimeoutMs` adds nothing: the prompt is shown exactly as it would be without it.\n- **Opt-in activation.** Installing an annotator extension shows nothing; an annotator runs only when you name it here, in this order.\n\nAnnotators run on the session that shows the prompt, so a subagent's forwarded ask is annotated by the session that serves it.\n\nDefaults to an empty list (no annotators).",
         default: [],
       }),
-    annotatorTimeoutMs: z.number().int().min(1).optional().meta({
-      description:
-        "How long a permission prompt waits for its annotators before it is shown without the ones still pending, in milliseconds. Omit to use the default (1500). The deadline covers the whole annotator chain, not each annotator.",
-      markdownDescription:
-        "How long a permission prompt waits for its annotators before it is shown without the ones still pending, in milliseconds.\n\nOmit to use the default (`1500`). The deadline covers the whole `annotatorChain` \u2014 annotators run together \u2014 so the prompt is delayed by at most this long, and only when an annotator is configured and registered. An annotator that has not answered by then is abandoned and its late answer is discarded. This is unrelated to `promptTimeoutMs`, which denies an unanswered prompt.",
-      default: 1500,
-    }),
+    annotatorTimeoutMs: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .meta({
+        description: `How long a permission prompt waits for its annotators before it is shown without the ones still pending, in milliseconds. Omit to use the default (${DEFAULT_ANNOTATOR_TIMEOUT_MS}). The deadline covers the whole annotator chain, not each annotator.`,
+        markdownDescription: `How long a permission prompt waits for its annotators before it is shown without the ones still pending, in milliseconds.\n\nOmit to use the default (\`${DEFAULT_ANNOTATOR_TIMEOUT_MS}\`). The deadline covers the whole \`annotatorChain\` \u2014 annotators run together \u2014 so the prompt is delayed by at most this long, and only when an annotator is configured and registered. An annotator that has not answered by then is abandoned and its late answer is discarded. This is unrelated to \`promptTimeoutMs\`, which denies an unanswered prompt.`,
+        default: DEFAULT_ANNOTATOR_TIMEOUT_MS,
+      }),
     permission: permissionSchema.optional(),
     shellTools: shellToolsSchema.optional(),
     commandEffects: commandEffectsSchema.optional(),
