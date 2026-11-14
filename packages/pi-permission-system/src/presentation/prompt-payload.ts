@@ -134,17 +134,30 @@ export interface PromptEvidence {
   readonly detail: string | null;
 }
 
+/** The marking every annotation carries. A literal, so no other value is representable. */
+export const MODEL_GENERATED = "model-generated" as const;
+
 /**
  * A model-generated advisory (ADR 0011 §8).
  *
- * The slot owns the attribution and the model-generated marking, so marking is
- * a property of the payload rather than a discipline each annotator must
- * remember. Structurally separate from any verdict: an annotation cannot allow,
- * deny, defer, or suppress.
+ * The slot owns the attribution and the marking, so both are properties of the
+ * payload rather than a discipline each annotator must remember: `source` is the
+ * registered annotator's name, stamped by this package, and `marking` is a
+ * literal only {@link modelGeneratedAnnotation} writes. Structurally separate
+ * from any verdict: an annotation cannot allow, deny, defer, or suppress.
  */
 export interface PromptAnnotation {
   readonly source: string;
   readonly text: string;
+  readonly marking: typeof MODEL_GENERATED;
+}
+
+/** The only constructor of a {@link PromptAnnotation}. */
+export function modelGeneratedAnnotation(
+  source: string,
+  text: string,
+): PromptAnnotation {
+  return { source, text, marking: MODEL_GENERATED };
 }
 
 /** The `requester` facts for an ask raised by this session. */
@@ -318,7 +331,9 @@ function asPromptAnnotation(value: unknown): PromptAnnotation | undefined {
   ) {
     return undefined;
   }
-  return { source: candidate.source, text: candidate.text };
+  // The marking is re-stamped, never read: a serialized annotation has no say in
+  // how it is labelled, and a payload from an older child carries none.
+  return modelGeneratedAnnotation(candidate.source, candidate.text);
 }
 
 function asObject(value: unknown): Record<string, unknown> | undefined {

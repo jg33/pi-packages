@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { PromptPayload } from "#src/presentation/prompt-payload";
+import {
+  modelGeneratedAnnotation,
+  type PromptPayload,
+} from "#src/presentation/prompt-payload";
 import { renderReviewLogFacts } from "#src/presentation/review-log-renderer";
 import { makePromptPayload } from "#test/helpers/prompt-details-fixtures";
 
@@ -181,7 +184,7 @@ describe("renderReviewLogFacts", () => {
               { label: "working directory", text: "/repo", detail: null },
               { label: "external path", text: "/etc/hosts", detail: null },
             ],
-            annotations: [{ source: "judge", text: "looks risky" }],
+            annotations: [modelGeneratedAnnotation("judge", "looks risky")],
           },
         ),
       ),
