@@ -78,9 +78,9 @@ describe("isRenderablePayload", () => {
 
   it("rejects an annotations slot that is not an array", () => {
     const gate = makeGate();
-    expect(
-      isRenderablePayload({ ...gate, annotations: "nope" }, gate),
-    ).toBe(false);
+    expect(isRenderablePayload({ ...gate, annotations: "nope" }, gate)).toBe(
+      false,
+    );
     expect(isRenderablePayload({ ...gate, annotations: null }, gate)).toBe(
       false,
     );
@@ -98,20 +98,14 @@ describe("isRenderablePayload", () => {
     ["an undefined member", undefined],
   ])("rejects a member with %s", (_label, member) => {
     const gate = makeGate();
-    expect(
-      isRenderablePayload({ ...gate, annotations: [member] }, gate),
-    ).toBe(false);
+    expect(isRenderablePayload({ ...gate, annotations: [member] }, gate)).toBe(
+      false,
+    );
   });
 
   it.each([
-    [
-      "junk first",
-      [null, modelGeneratedAnnotation("echo", "fine")],
-    ],
-    [
-      "junk last",
-      [modelGeneratedAnnotation("echo", "fine"), null],
-    ],
+    ["junk first", [null, modelGeneratedAnnotation("echo", "fine")]],
+    ["junk last", [modelGeneratedAnnotation("echo", "fine"), null]],
   ])("rejects a mixed annotations array, %s", (_label, annotations) => {
     const gate = makeGate();
     expect(isRenderablePayload({ ...gate, annotations }, gate)).toBe(false);

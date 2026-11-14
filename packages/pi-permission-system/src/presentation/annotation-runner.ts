@@ -245,7 +245,18 @@ export class AnnotationRunner implements PayloadAnnotator {
     outcome: Outcome,
   ): Promise<PromptAnnotation | undefined> {
     try {
-      return toAnnotation(name, await annotate({ payload, signal }));
+      // Hand out a copy, never the gate's own objects: `payload.request` and
+      // `payload.evidence` are shared with `details`, so an annotator holding
+      // them could edit the runtime facts the dialog and the broadcast show
+      // without writing a word of annotation text (ADR 0011 §6-§8). A clone,
+      // not a freeze: other consumers share those objects and must not be
+      // frozen. One clone per annotator per ask is irrelevant beside a model
+      // call, and the returned payload is still built from `own`, so the gate's
+      // `request`/`evidence` identity (and `isRenderablePayload`) is unchanged.
+      return toAnnotation(
+        name,
+        await annotate({ payload: structuredClone(payload), signal }),
+      );
     } catch (error) {
       // Only the outcome that won the race is recorded (one per annotator per
       // ask), and the error's name is read safely (see `errorNameForLog`).

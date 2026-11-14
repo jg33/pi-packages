@@ -33,3 +33,8 @@ export const rejectingAnnotator: Annotator = () =>
 export const passThroughAnnotator: PayloadAnnotator = {
   annotate: (payload) => Promise.resolve(payload),
 };
+
+/** An untyped (JavaScript) annotator trying to rule on the ask. The cast is the point of the fixture. */
+export const verdictLikeAnnotator = (() => ({
+  kind: "allow",
+})) as unknown as Annotator;
