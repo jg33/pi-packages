@@ -11,7 +11,10 @@
  */
 
 import type { Annotator, AnnotatorLookup } from "./annotator-registry";
-import { sanitizeAnnotationText } from "./printable-text";
+import {
+  annotationSourceLabel,
+  sanitizeAnnotationText,
+} from "./printable-text";
 import {
   modelGeneratedAnnotation,
   type PromptAnnotation,
@@ -55,6 +58,57 @@ interface NamedAnnotator {
 }
 
 /**
+ * What the deadline resolves to, so a timeout is distinguishable from an
+ * annotator that declined (`undefined`).
+ */
+const TIMED_OUT = Symbol("annotator-timed-out");
+
+/** Longest error name a review record carries, so the log stays bounded. */
+const MAX_LOGGED_ERROR_NAME = 64;
+
+/** What an error whose name cannot be read is reported as. */
+const UNREADABLE_ERROR_NAME = "unreadable";
+
+/** Whether this annotator's outcome has already been recorded. */
+interface Outcome {
+  settled: boolean;
+}
+
+/**
+ * The error's *name* for the review log, never its message: a model call's
+ * message can echo the request into the bounded log (ADR 0011 §6).
+ *
+ * Unreadable on purpose — `instanceof` and the `name` read can both throw (a
+ * revoked proxy, a getter that throws), and this runs in the isolation path, so
+ * nothing here may escape: an error path that throws would lose a healthy
+ * sibling's annotation.
+ */
+function errorNameForLog(error: unknown): string {
+  let isError: boolean;
+  try {
+    isError = error instanceof Error;
+  } catch {
+    return UNREADABLE_ERROR_NAME;
+  }
+  if (!isError) {
+    return "non-error throw";
+  }
+  let name: unknown;
+  try {
+    name = (error as Error).name;
+  } catch {
+    return UNREADABLE_ERROR_NAME;
+  }
+  if (typeof name !== "string") {
+    return UNREADABLE_ERROR_NAME;
+  }
+  // The name is attacker-influenced text bound for a bounded log: strip
+  // control/format characters and cap it like any other label.
+  const bounded = annotationSourceLabel(name, MAX_LOGGED_ERROR_NAME);
+  return bounded === "" ? UNREADABLE_ERROR_NAME : bounded;
+}
+
+/**
  * The agent-facing text for a configured annotator that is not registered here.
  *
  * Names the likeliest cause and admits the other, as `unregisteredLinkMessage`
@@ -87,13 +141,55 @@ export class AnnotationRunner implements PayloadAnnotator {
         ? payload
         : { ...payload, annotations: [] };
     const annotators = this.resolve(requestId);
-    const answers = await Promise.all(
-      annotators.map(({ name, annotate }) => this.consult(name, annotate, own)),
+    if (annotators.length === 0) {
+      return own;
+    }
+    // One deadline for the whole chain: annotators run together, so the prompt
+    // is delayed by at most the timeout however long the chain is (ADR 0011 §8).
+    const controller = new AbortController();
+    const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+      controller.signal.addEventListener("abort", () => resolve(TIMED_OUT), {
+        once: true,
+      });
+    });
+    const timer = setTimeout(
+      () => controller.abort(),
+      this.deps.getTimeoutMs(),
     );
-    const annotations = answers.filter(
-      (answer): answer is PromptAnnotation => answer !== undefined,
-    );
-    return annotations.length === 0 ? own : { ...own, annotations };
+    try {
+      const answers = await Promise.all(
+        annotators.map(async ({ name, annotate }) => {
+          const outcome: Outcome = { settled: false };
+          const answer = await Promise.race([
+            this.consult(
+              name,
+              annotate,
+              own,
+              controller.signal,
+              requestId,
+              outcome,
+            ),
+            deadline,
+          ]);
+          if (answer === TIMED_OUT) {
+            // Exactly one outcome per annotator per ask: a late failure must
+            // not append a second record for the same name.
+            if (!outcome.settled) {
+              outcome.settled = true;
+              this.record("annotator_timed_out", { requestId, name });
+            }
+            return undefined;
+          }
+          return answer;
+        }),
+      );
+      const annotations = answers.filter(
+        (answer): answer is PromptAnnotation => answer !== undefined,
+      );
+      return annotations.length === 0 ? own : { ...own, annotations };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -117,15 +213,55 @@ export class AnnotationRunner implements PayloadAnnotator {
     return resolved;
   }
 
+  /**
+   * One annotator's answer. Never rejects: a throw is the same as a decline,
+   * because an annotator that fails must not be able to stop the prompt (ADR
+   * 0011 §8, "unchanged-prompt fallback"). A late result after the deadline is
+   * ignored by the race, and a late rejection still lands here, so none is left
+   * unhandled.
+   */
   private async consult(
     name: string,
     annotate: Annotator,
     payload: PromptPayload,
+    signal: AbortSignal,
+    requestId: string,
+    outcome: Outcome,
   ): Promise<PromptAnnotation | undefined> {
-    return toAnnotation(
-      name,
-      await annotate({ payload, signal: new AbortController().signal }),
-    );
+    try {
+      return toAnnotation(name, await annotate({ payload, signal }));
+    } catch (error) {
+      // Only the outcome that won the race is recorded (one per annotator per
+      // ask), and the error's name is read safely (see `errorNameForLog`).
+      if (!outcome.settled) {
+        outcome.settled = true;
+        this.record("annotator_failed", {
+          requestId,
+          name,
+          error: errorNameForLog(error),
+        });
+      }
+      return undefined;
+    }
+  }
+
+  /** A review record; a broken sink must not reject the prompt path. */
+  private record(event: string, details: Record<string, unknown>): void {
+    try {
+      this.deps.log.review(event, details);
+    } catch {
+      // Losing one audit record is cheaper than losing a prompt or a sibling
+      // annotator's answer.
+    }
+  }
+
+  /** An operator warning; same contract as `record`. */
+  private report(message: string): void {
+    try {
+      this.deps.log.warn(message);
+    } catch {
+      // Same contract as `record`.
+    }
   }
 
   /**
@@ -135,15 +271,12 @@ export class AnnotationRunner implements PayloadAnnotator {
    * `AuthorizerChainAudit`.
    */
   private auditUnregistered(name: string, requestId: string): void {
-    this.deps.log.review("annotator_chain_unregistered_link", {
-      requestId,
-      name,
-    });
+    this.record("annotator_chain_unregistered_link", { requestId, name });
     if (this.warned.has(name)) {
       return;
     }
     this.warned.add(name);
-    this.deps.log.warn(unregisteredAnnotatorMessage(name));
+    this.report(unregisteredAnnotatorMessage(name));
   }
 }
 

@@ -14,3 +14,16 @@ export function staticAnnotator(text: string): Annotator {
 /** Echoes the ask's decision-relevant value, so a test sees the annotator was handed the payload. */
 export const echoAnnotator: Annotator = ({ payload }) =>
   `echo: ${payload.request.value}`;
+
+/** Never answers: models an annotator whose model call hangs. */
+export const hangingAnnotator: Annotator = () =>
+  new Promise<string | undefined>(() => undefined);
+
+/** Throws before returning a promise. */
+export const throwingAnnotator: Annotator = () => {
+  throw new Error("boom");
+};
+
+/** Rejects asynchronously. */
+export const rejectingAnnotator: Annotator = () =>
+  Promise.reject(new Error("boom"));

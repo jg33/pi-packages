@@ -77,9 +77,14 @@ export function sanitizeAnnotationText(text: string): string {
 export function annotationSourceLabel(source: string, max: number): string {
   const printable = source
     .replace(ESCAPE_SEQUENCES, "")
+    // Before the whitelist, so a CRLF collapses to one space, not two.
+    .replace(LINE_BREAKS, " ")
     .replace(NON_PRINTABLE_CHARACTERS, " ")
     .trim();
-  return printable.length <= max
+  // Code points, not UTF-16 units: slicing mid-surrogate would render a
+  // replacement glyph in place of the ellipsis.
+  const points = Array.from(printable);
+  return points.length <= max
     ? printable
-    : `${printable.slice(0, max)}\u2026`;
+    : `${points.slice(0, max).join("")}\u2026`;
 }

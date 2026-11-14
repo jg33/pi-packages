@@ -27,8 +27,8 @@ const MAX_CONFIG_ARRAY_ITEMS = 1000;
  * How long a prompt waits for `annotatorChain` when `annotatorTimeoutMs` is not
  * configured. Lives here, not in the runner: a config default belongs to the
  * config layer, and the generated schema must stay importable by the generator
- * (`node --experimental-strip-types` cannot resolve this package's `#src`
- * alias).
+ * (`node --experimental-strip-types` cannot resolve this package's
+ * extensionless `#src/*` subpaths).
  */
 export const DEFAULT_ANNOTATOR_TIMEOUT_MS = 1500;
 
