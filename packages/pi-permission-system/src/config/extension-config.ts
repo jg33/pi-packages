@@ -40,6 +40,10 @@ export interface PermissionSystemExtensionConfig {
   shellTools?: ShellToolsConfig;
   /** Ordered names of registered live-authority chain links to consult before the terminal authorizer. */
   authorizerChain?: string[];
+  /** Ordered names of registered prompt annotators to consult before a prompt is shown; advisory text only. */
+  annotatorChain?: string[];
+  /** How long a prompt waits for its annotators before it is shown without the pending ones, in ms. Defaults to 1500. */
+  annotatorTimeoutMs?: number;
 }
 
 export const DEFAULT_EXTENSION_CONFIG: PermissionSystemExtensionConfig = {
@@ -113,6 +117,12 @@ export function normalizePermissionSystemConfig(
   }
   if (raw.authorizerChain !== undefined) {
     result.authorizerChain = raw.authorizerChain;
+  }
+  if (raw.annotatorChain !== undefined) {
+    result.annotatorChain = raw.annotatorChain;
+  }
+  if (raw.annotatorTimeoutMs !== undefined) {
+    result.annotatorTimeoutMs = raw.annotatorTimeoutMs;
   }
   return result;
 }

@@ -122,8 +122,10 @@ This clamp is deny-preserving and, like `yoloMode`, applied at composition; when
 | `toolTextSummaryMaxLength`  | —        | **Deprecated and ignored.** Superseded by `promptMaxRows` / `promptFieldMaxWidth`. Still accepted so an existing config is not rejected, but the value no longer applies; setting it logs a warning.                                         |
 | `piInfrastructureReadPaths` | `[]`     | Extra directories to auto-allow for reads, bypassing the `external_directory` gate. Supports `~`/`$HOME`/`${HOME}` expansion and wildcard patterns (`*`, `?`).                                                                               |
 | `authorizerChain`           | `[]`     | Ordered names of registered live-authority chain links to consult before the terminal authorizer (see [Authorizer chain](#authorizer-chain--case-by-case-decision-links)).                                                                   |
+| `annotatorChain`            | `[]`     | Ordered names of registered prompt annotators whose advisory text a permission prompt shows, labelled model-generated (see [Prompt annotations](#prompt-annotations)).                                                                        |
+| `annotatorTimeoutMs`        | `1500`   | How long a prompt waits for its annotators before it is shown without the pending ones, in milliseconds (see [Prompt annotations](#prompt-annotations)).                                                                                     |
 
-Every array field (`promptNotifications`, `piInfrastructureReadPaths`, `authorizerChain`, and a `commandEffects` entry's `effects` and `unlessOption` lists) accepts at most 1,000 entries.
+Every array field (`promptNotifications`, `piInfrastructureReadPaths`, `authorizerChain`, `annotatorChain`, and a `commandEffects` entry's `effects` and `unlessOption` lists) accepts at most 1,000 entries.
 A longer list makes the file invalid, so it is rejected like any other invalid value (see [Merge Precedence](#merge-precedence) for how an invalid scope fails closed).
 
 Both logs write to `~/.pi/agent/extensions/pi-permission-system/logs/`.

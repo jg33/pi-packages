@@ -553,6 +553,24 @@ export const unifiedConfigSchema = z
           "Ordered names of registered **live-authority chain links** (e.g. a model judge) to consult before the terminal authorizer (the human, or the subagent-forwarding / headless-deny fallback).\n\nA link reviews an `ask` and returns `allow` / `deny` (with an optional teaching reason) / `defer` to the next link. Three invariants govern the chain:\n\n- **Config order wins.** The order here \u2014 not the order extensions register in \u2014 fixes the security-relevant chain order.\n- **Fail-safe skip.** A name with no registered link is skipped with a warning; the `ask` still reaches the terminal (more prompting, never less).\n- **Opt-in activation.** Installing a judge extension grants it no authority; a link decides nothing until you name it here.\n\nThe chain owner caps every verdict with a bounded-delegation checkpoint: a link's `allow` on an excluded surface (`external_directory` or `path`) is downgraded to `defer`, so a link cannot exceed your policy. The one exception is per ask: a link's `allow` on a bash `external_directory` ask whose every flagged path names nothing on disk below the filesystem root (and is not a proven write) is honored, and the review log records `authorizer_allow_licensed`.\n\nDefaults to an empty list (no links).",
         default: [],
       }),
+    annotatorChain: z
+      .array(z.string().min(1))
+      .max(MAX_CONFIG_ARRAY_ITEMS)
+      .optional()
+      .meta({
+        description:
+          "Ordered names of registered prompt annotators to consult when a permission prompt is about to be shown. Config order fixes the order annotations appear in; an unregistered name is skipped fail-safe (the prompt is shown unchanged); an annotator shows nothing until it is named here. An annotation is advisory, always labelled model-generated, and never decides the ask.",
+        markdownDescription:
+          "Ordered names of registered **prompt annotators** (e.g. a model that explains the command) to consult when a permission prompt is about to be shown.\n\nAn annotator returns advisory text that the prompt shows under a `model-generated (<name>)` label, below the evidence. Three invariants govern it:\n\n- **Advisory only.** An annotation can never allow, deny, defer, or suppress the ask; the prompt and its decision are unchanged. It is not shown to the agent, written to the review log, or broadcast on `permissions:ui_prompt`.\n- **Fail-safe.** A name with no registered annotator is skipped with a warning, and an annotator that declines, throws, or has not answered within `annotatorTimeoutMs` adds nothing: the prompt is shown exactly as it would be without it.\n- **Opt-in activation.** Installing an annotator extension shows nothing; an annotator runs only when you name it here, in this order.\n\nAnnotators run on the session that shows the prompt, so a subagent's forwarded ask is annotated by the session that serves it.\n\nDefaults to an empty list (no annotators).",
+        default: [],
+      }),
+    annotatorTimeoutMs: z.number().int().min(1).optional().meta({
+      description:
+        "How long a permission prompt waits for its annotators before it is shown without the ones still pending, in milliseconds. Omit to use the default (1500). The deadline covers the whole annotator chain, not each annotator.",
+      markdownDescription:
+        "How long a permission prompt waits for its annotators before it is shown without the ones still pending, in milliseconds.\n\nOmit to use the default (`1500`). The deadline covers the whole `annotatorChain` \u2014 annotators run together \u2014 so the prompt is delayed by at most this long, and only when an annotator is configured and registered. An annotator that has not answered by then is abandoned and its late answer is discarded. This is unrelated to `promptTimeoutMs`, which denies an unanswered prompt.",
+      default: 1500,
+    }),
     permission: permissionSchema.optional(),
     shellTools: shellToolsSchema.optional(),
     commandEffects: commandEffectsSchema.optional(),
