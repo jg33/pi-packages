@@ -52,6 +52,7 @@ import { DEFAULT_EXTENSION_CONFIG } from "#src/config/extension-config";
 import { SESSION_ENDED_REASON } from "#src/handlers/lifecycle";
 import piPermissionSystemExtension from "#src/index";
 import { unregisteredAnnotatorMessage } from "#src/presentation/annotation-runner";
+import { AnnotatorRegistry } from "#src/presentation/annotator-registry";
 import { getPermissionsService } from "#src/service";
 import {
   PERMISSIONS_READY_CHANNEL,
@@ -1315,6 +1316,26 @@ describe("service and annotator chain share one annotator registry", () => {
     );
 
     rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("registers exactly one built-in annotator at composition", () => {
+    const register = vi.spyOn(AnnotatorRegistry.prototype, "register");
+    writeGlobalConfig({ permission: { "*": "ask" } });
+
+    try {
+      const pi = makeFakePi({ toolNames: ["demo"] });
+      piPermissionSystemExtension(pi as unknown as ExtensionAPI);
+
+      // One annotator exists in the whole package: the built-in, registered
+      // under the name the operator must put in annotatorChain to run it.
+      expect(register).toHaveBeenCalledTimes(1);
+      expect(register).toHaveBeenCalledWith(
+        "pending-command",
+        expect.any(Function),
+      );
+    } finally {
+      register.mockRestore();
+    }
   });
 
   it("ignores a registered annotator the operator did not name (opt-in)", async () => {

@@ -16,6 +16,28 @@ export interface PromptPayload {
   readonly evidence: readonly PromptEvidence[];
   /** Supplied by registered annotators; always marked as model-generated. */
   readonly annotations: readonly PromptAnnotation[];
+  /**
+   * The authorizer chain's review trail for this ask, attached by the
+   * terminal at annotate time so an annotator can explain what the chain
+   * already decided (pi-jev-auto-mode's verdict above all — plan item 5, D4).
+   *
+   * Annotate-time input, never a gate-built fact: `asPromptPayload` does not
+   * decode it, the broadcast is built from the original details, and no
+   * renderer reads it. Absent on every payload a gate emits.
+   */
+  readonly authorizerContext?: readonly AuthorizerReviewEntry[];
+}
+
+/**
+ * One review-log entry the authorizer chain wrote while judging this ask,
+ * captured from the links' injected review seam (ADR 0007 §3).
+ *
+ * Shape kept as the seam hands it — event name plus whatever details the link
+ * passed — so capturing nothing but the passthrough costs no projection.
+ */
+export interface AuthorizerReviewEntry {
+  readonly event: string;
+  readonly details?: Record<string, unknown>;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AskDialogQueue } from "#src/authority/ask-dialog-queue";
+import { captureAuthorizerContext } from "#src/authority/authorizer-context";
 import { LocalUserAuthorizer } from "#src/authority/local-user-authorizer";
 import type { PermissionPromptDecision } from "#src/authority/permission-dialog";
 import { requestPermissionDecision } from "#src/authority/permission-prompt-component";
@@ -729,6 +730,49 @@ describe("LocalUserAuthorizer — annotations", () => {
     await new LocalUserAuthorizer(deps).authorize(details);
 
     expect(vi.mocked(decisionFn).mock.calls[0]?.[2]).toBe(details.payload);
+  });
+
+  it("passes the ask's captured authorizer context to the annotator, not the broadcast", async () => {
+    const seen: Array<PromptPayload | undefined> = [];
+    const { deps, events } = makeDeps({
+      annotator: {
+        annotate: (payload) => {
+          seen.push(payload);
+          return Promise.resolve(payload);
+        },
+      },
+    });
+    const details = makeDetails();
+    // Stands in for what `escalate`'s pass-through log captured while the
+    // chain judged this ask (plan item 5, D4).
+    const log = captureAuthorizerContext(details, {
+      review: vi.fn(),
+      debug: vi.fn(),
+    });
+    log.review("jev_authorizer_verdict", {
+      requestId: details.requestId,
+      status: "deferred",
+      source: "uncertain",
+      rationale: "No condition was violated.",
+    });
+
+    await new LocalUserAuthorizer(deps).authorize(details);
+
+    expect(seen[0]?.authorizerContext).toEqual([
+      {
+        event: "jev_authorizer_verdict",
+        details: {
+          requestId: "req-123",
+          status: "deferred",
+          source: "uncertain",
+          rationale: "No condition was violated.",
+        },
+      },
+    ]);
+    // The broadcast stays built from the original details (ADR 0011 §6).
+    expect(JSON.stringify(events.emit.mock.calls)).not.toContain(
+      "jev_authorizer_verdict",
+    );
   });
 
   it("shows the annotated payload but broadcasts the unannotated one", async () => {

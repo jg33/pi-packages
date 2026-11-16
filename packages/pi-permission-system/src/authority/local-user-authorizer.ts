@@ -21,6 +21,7 @@ import { buildUiPrompt } from "#src/service/permission-ui-prompt";
 import { provenDirectionOf } from "#src/session/approval-grant";
 import type { AskDialogAdmission } from "./ask-dialog-queue";
 import type { TerminalAuthorizer } from "./authorizer";
+import { withAuthorizerContext } from "./authorizer-context";
 import type {
   PermissionPromptDecision,
   RequestPermissionOptions,
@@ -169,7 +170,12 @@ export class LocalUserAuthorizer implements TerminalAuthorizer {
         // `unknown`, because the interface's type is not a promise an
         // arbitrary implementation keeps: the value is checked, not assumed.
         const annotated: unknown = await Promise.race([
-          this.deps.annotator.annotate(details.payload, details.requestId),
+          // The chain's trail for this ask rides on the payload as
+          // annotate-time input; the gate's own facts keep their identity.
+          this.deps.annotator.annotate(
+            withAuthorizerContext(details.payload, details),
+            details.requestId,
+          ),
           ceiling,
         ]);
         // Validated, not just race-checked: the renderers traverse `request`,

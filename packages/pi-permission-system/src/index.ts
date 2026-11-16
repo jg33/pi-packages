@@ -57,6 +57,7 @@ import {
 } from "#src/presentation/annotation-runner";
 import { AnnotatorRegistry } from "#src/presentation/annotator-registry";
 import { resolveRenderBudget } from "#src/presentation/dialog-renderer";
+import { registerPendingCommandAnnotator } from "#src/presentation/pending-command-annotator";
 import { LocalPermissionsService } from "#src/service/permissions-service";
 import { PermissionServiceLifecycle } from "#src/service/service-lifecycle";
 import { PermissionSession } from "#src/session/permission-session";
@@ -300,6 +301,13 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     ),
     annotatorRegistry,
   );
+
+  // The one built-in annotator (asks-parity plan item 5): registered at
+  // composition through the same `registerAnnotator` surface a sibling
+  // extension uses, so it resolves against this factory's registry. It runs
+  // only when the operator names it in `annotatorChain` — registration alone
+  // shows nothing (ADR 0011 §8).
+  registerPendingCommandAnnotator(permissionsService);
 
   // Subscribe to @gotgenes/pi-subagents' child lifecycle events so child
   // sessions register/unregister without the core calling us (ADR 0002), and
