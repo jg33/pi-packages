@@ -40,17 +40,14 @@ describe("permission prompt gate semantics (characterization: must hold before A
     });
 
     it("b approves both directions only when the ask offers it", async () => {
-      const withWidth = mountPrompt({
+      const withScope = mountPrompt({
         view: NOW,
-        options: {
-          sessionWidth: { label: 'Yes, reads and writes to "/tmp/*"' },
-        },
+        options: { forwarded: true, sessionScope: true },
       });
-      withWidth.type("b");
-      await expect(withWidth.decision).resolves.toStrictEqual({
+      withScope.type("b");
+      await expect(withScope.decision).resolves.toStrictEqual({
         approved: true,
-        state: "approved_for_session",
-        sessionGrantWidth: "family",
+        state: "approved_for_serving_session",
         decidedBy: USER,
       });
 
@@ -79,31 +76,6 @@ describe("permission prompt gate semantics (characterization: must hold before A
       });
     });
 
-    it("r opens the reason step; an empty reason is refused; a reason denies with it", async () => {
-      const m = mountPrompt({ view: NOW });
-      m.type("r");
-      expect(m.done).not.toHaveBeenCalled();
-      expect(m.screen().join("\n")).toContain("Reason");
-      m.type(KEY.enter);
-      expect(m.done).not.toHaveBeenCalled();
-      expect(m.screen().join("\n")).toContain("A reason is required.");
-      m.typeText("too risky");
-      m.type(KEY.enter);
-      await expect(m.decision).resolves.toStrictEqual({
-        approved: false,
-        state: "denied_with_reason",
-        denialReason: "too risky",
-        decidedBy: USER,
-      });
-    });
-
-    it("esc in the reason step returns to the decision step without deciding", () => {
-      const m = mountPrompt({ view: NOW });
-      m.type("r", KEY.esc);
-      expect(m.done).not.toHaveBeenCalled();
-      expect(m.screen().join("\n")).toMatch(/1\W+Yes/);
-    });
-
     it("keys that are bound to nothing never decide", () => {
       const m = mountPrompt({ view: NOW });
       m.type("x", "z", "q", "\t", " ");
@@ -114,7 +86,7 @@ describe("permission prompt gate semantics (characterization: must hold before A
       const m = mountPrompt(); // double-press to confirm is on by default here
       m.type(KEY.enter);
       expect(m.done).not.toHaveBeenCalled();
-      expect(m.screen().join("\n")).toContain("Press y again to approve.");
+      expect(m.screen().join("\n")).toContain("Press y again to allow.");
     });
 
     it("second Enter approves", async () => {
@@ -171,20 +143,17 @@ describe("permission prompt gate semantics (characterization: must hold before A
     });
   });
 
-  describe("scope step (forwarded asks)", () => {
+  describe("the scope choice in the first prompt", () => {
     const options = {
-      sessionScope: {
-        subagentLabel: "This subagent only",
-        servingSessionLabel: "The whole session",
-      },
+      forwarded: true,
+      sessionScope: true,
     };
 
-    it("s opens the scope step; enter keeps the least-privilege default", async () => {
+    it("renders both scope rows; s grants this agent", async () => {
       const m = mountPrompt({ view: NOW, options });
+      expect(m.screen().join("\n")).toContain("allow for this agent");
+      expect(m.screen().join("\n")).toContain("allow for all agents");
       m.type("s");
-      expect(m.done).not.toHaveBeenCalled();
-      expect(m.screen().join("\n")).toContain("This subagent only");
-      m.type(KEY.enter);
       await expect(m.decision).resolves.toStrictEqual({
         approved: true,
         state: "approved_for_session",
@@ -192,21 +161,14 @@ describe("permission prompt gate semantics (characterization: must hold before A
       });
     });
 
-    it("↓ then enter widens to the serving session", async () => {
+    it("b widens to the serving session", async () => {
       const m = mountPrompt({ view: NOW, options });
-      m.type("s", KEY.down, KEY.enter);
+      m.type("b");
       await expect(m.decision).resolves.toStrictEqual({
         approved: true,
         state: "approved_for_serving_session",
         decidedBy: USER,
       });
-    });
-
-    it("esc returns to the decision step without deciding", () => {
-      const m = mountPrompt({ view: NOW, options });
-      m.type("s", KEY.esc);
-      expect(m.done).not.toHaveBeenCalled();
-      expect(m.screen().join("\n")).toMatch(/3\W+No/);
     });
   });
 
@@ -215,7 +177,7 @@ describe("permission prompt gate semantics (characterization: must hold before A
       const m = mountPrompt({ view: { doublePressToConfirm: true } });
       m.type("y");
       expect(m.done).not.toHaveBeenCalled();
-      expect(m.screen().join("\n")).toContain("Press y again to approve.");
+      expect(m.screen().join("\n")).toContain("Press y again to allow.");
       m.type("y");
       await expect(m.decision).resolves.toStrictEqual({
         approved: true,
@@ -235,7 +197,7 @@ describe("permission prompt gate semantics (characterization: must hold before A
       const m = mountPrompt({ view: { doublePressToConfirm: true } });
       m.type("y", KEY.down);
       // Not "again to": the resting hint also says "then again to confirm" (before and after the restyle).
-      expect(m.screen().join("\n")).not.toContain("Press y again to approve.");
+      expect(m.screen().join("\n")).not.toContain("Press y again to allow.");
       m.type("y"); // arms again, does not commit
       expect(m.done).not.toHaveBeenCalled();
     });
@@ -274,10 +236,10 @@ describe("permission prompt gate semantics (characterization: must hold before A
     it("numbers rows by position, not by the configured key", () => {
       const m = mountPrompt({ view: { ...NOW, dialogKeys } });
       const text = m.screen().join("\n");
-      expect(text).toMatch(/1\W+Yes/);
+      expect(text).toMatch(/1\W+allow/);
       // Rows are numbered by position, not by the remapped character: on this
-      // narrow ask deny sits third, because the both-directions row is absent.
-      expect(text).toMatch(/3\W+No\b/);
+      // narrow ask deny sits third, because the scope row is absent.
+      expect(text).toMatch(/3\W+deny\b/);
     });
   });
 
@@ -341,7 +303,7 @@ describe("permission prompt gate semantics (characterization: must hold before A
     it("uses select/input and never mounts a component", async () => {
       const custom = vi.fn();
       const view = makeView({ mode: "rpc" }, custom);
-      vi.mocked(view.ui.select).mockResolvedValue("Yes");
+      vi.mocked(view.ui.select).mockResolvedValue("allow");
       await expect(
         requestPermissionDecision(view, "Permission Required", bashPayload()),
       ).resolves.toStrictEqual({

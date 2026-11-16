@@ -199,7 +199,7 @@ function makeUiCtx(
   const ctx = makeBaseCtx(cwd, "ui-session", {
     select: async (title: string): Promise<string | undefined> => {
       capturedTitles.push(title);
-      return "Yes";
+      return "allow";
     },
     notify: (message: string) => notified.push(message),
   });
@@ -2229,11 +2229,10 @@ describe("tool-surface prose under a custom system prompt", () => {
 });
 
 describe("forwarded grant-scope selection round-trip", () => {
-  // A UI-present serving ctx whose `select` drives the two-step forwarded
-  // dialog: the main prompt picks "for this session" (options[1]); the scope
-  // prompt (options include a "The whole session …" label) returns the chosen
-  // scope. Every `select` options array is recorded so a test can prove the
-  // human was (or was not) re-prompted.
+  // A UI-present serving ctx whose `select` drives the one-step forwarded
+  // dialog: the roster carries the agent-only and whole-session rows, and the
+  // test's `scope` picks which one. Every `select` options array is recorded
+  // so a test can prove the human was (or was not) re-prompted.
   function makeServingCtx(
     cwd: string,
     sessionId: string,
@@ -2246,13 +2245,9 @@ describe("forwarded grant-scope selection round-trip", () => {
         options: string[],
       ): Promise<string | undefined> => {
         selectLog.push(options);
-        const wholeOption = options.find((o) =>
-          o.startsWith("The whole session"),
-        );
-        if (wholeOption) {
-          return scope === "whole" ? wholeOption : options[0];
-        }
-        return options[1];
+        const wanted =
+          scope === "whole" ? "allow for all agents" : "allow for this agent";
+        return options.find((o) => o === wanted) ?? options[1];
       },
     });
   }
@@ -2295,8 +2290,8 @@ describe("forwarded grant-scope selection round-trip", () => {
       makeChildCtx(childCwd, childSessionId),
     )) as { block?: true };
     expect(firstResult.block).toBeUndefined();
-    // One serve = main dialog + scope dialog.
-    expect(selectLog).toHaveLength(2);
+    // One serve = one dialog: the scope choice is a roster row.
+    expect(selectLog).toHaveLength(1);
 
     // 2. A second child `demo` re-forwards and the serving node auto-approves
     // from its recorded whole-session grant — no new human prompt.
@@ -2306,7 +2301,7 @@ describe("forwarded grant-scope selection round-trip", () => {
       makeChildCtx(childCwd, childSessionId),
     )) as { block?: true };
     expect(secondResult.block).toBeUndefined();
-    expect(selectLog).toHaveLength(2);
+    expect(selectLog).toHaveLength(1);
 
     // 3. The parent's own `demo` is session-approved by the same grant.
     const parentResult = (await parentPi.fire(
@@ -2315,7 +2310,7 @@ describe("forwarded grant-scope selection round-trip", () => {
       parentCtx,
     )) as { block?: true };
     expect(parentResult.block).toBeUndefined();
-    expect(selectLog).toHaveLength(2);
+    expect(selectLog).toHaveLength(1);
 
     await parentPi.fire("session_shutdown");
     rmSync(parentCwd, { recursive: true, force: true });
@@ -2359,7 +2354,7 @@ describe("forwarded grant-scope selection round-trip", () => {
       makeChildCtx(childCwd, childSessionId),
     )) as { block?: true };
     expect(firstResult.block).toBeUndefined();
-    expect(selectLog).toHaveLength(2);
+    expect(selectLog).toHaveLength(1);
 
     // 2. The child recorded the grant locally: its next `demo` resolves as a
     // session approval with no forward, so the serving node is not consulted.
@@ -2369,7 +2364,7 @@ describe("forwarded grant-scope selection round-trip", () => {
       makeChildCtx(childCwd, childSessionId),
     )) as { block?: true };
     expect(secondResult.block).toBeUndefined();
-    expect(selectLog).toHaveLength(2);
+    expect(selectLog).toHaveLength(1);
 
     // 3. The parent holds no grant, so its own `demo` prompts again.
     const parentResult = (await parentPi.fire(
@@ -2378,7 +2373,7 @@ describe("forwarded grant-scope selection round-trip", () => {
       parentCtx,
     )) as { block?: true };
     expect(parentResult.block).toBeUndefined();
-    expect(selectLog.length).toBeGreaterThan(2);
+    expect(selectLog.length).toBe(2);
 
     await parentPi.fire("session_shutdown");
     rmSync(parentCwd, { recursive: true, force: true });
@@ -2790,7 +2785,7 @@ describe("configured prompt preferences reach the inline dialog", () => {
     await sleep(0);
 
     // Rows show their position, not the configured characters.
-    expect(optionKeys(render())).toEqual(["1", "2", "3", "4"]);
+    expect(optionKeys(render())).toEqual(["1", "2", "3"]);
 
     // The default letter is no longer live; the configured one commits.
     press("n");
@@ -2840,7 +2835,7 @@ describe("configured prompt preferences reach the inline dialog", () => {
     ) as Promise<{ block?: true }>;
     await sleep(0);
     // Rows are numbered by position either way; the kept default letter commits.
-    expect(optionKeys(render())).toEqual(["1", "2", "3", "4"]);
+    expect(optionKeys(render())).toEqual(["1", "2", "3"]);
     press("n");
     press("n");
     expect((await decision).block).toBe(true);

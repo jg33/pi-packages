@@ -1,3 +1,4 @@
+import type { PromptAction } from "#src/config/dialog-keys";
 import type { SessionGrantWidth } from "#src/session/approval-grant";
 import type { DecisionSource } from "./decision-source";
 
@@ -61,38 +62,60 @@ export interface PermissionDialogOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * The decisions the one-step prompt can offer.
+ *
+ * `denyWithReason` has no row: gate-authored denial reasons ride the config,
+ * and the interactive prompt decides in one round.
+ */
+export type PromptOptionAction = Exclude<PromptAction, "denyWithReason">;
+
+/** One numbered row of the prompt. */
+export interface PromptOptionRow {
+  readonly action: PromptOptionAction;
+  readonly label: string;
+}
+
+/**
+ * The prompt's option rows, in display order — the one source every surface
+ * renders: the inline dialog's numbered rows, the `select`/`input` fallback's
+ * option list, and (through `visibleActions`) the roster herdr's Asks panel
+ * adopts as its buttons.
+ *
+ * The labels are the fixed one-step roster: `allow` / the session row /
+ * `allow for all agents` when a scope choice applies / `deny`. Only the
+ * gate-supplied `sessionLabel` refines the session row's text; `forwarded`
+ * names whose session that row grants (the requesting subagent's, not the
+ * serving session's).
+ */
+export function promptOptions(
+  options?: Pick<
+    RequestPermissionOptions,
+    "sessionLabel" | "forwarded" | "sessionScope"
+  >,
+): readonly PromptOptionRow[] {
+  const rows: PromptOptionRow[] = [
+    { action: "approve", label: "allow" },
+    {
+      action: "approveSession",
+      label:
+        options?.sessionLabel ??
+        (options?.forwarded ? "allow for this agent" : "allow for all agents"),
+    },
+  ];
+  if (options?.sessionScope) {
+    rows.push({ action: "approveSessionBoth", label: "allow for all agents" });
+  }
+  rows.push({ action: "deny", label: "deny" });
+  return rows;
+}
+
 export interface PermissionDecisionUi {
   select(
     title: string,
     options: string[],
     opts?: PermissionDialogOptions,
   ): Promise<string | undefined>;
-  input(
-    title: string,
-    placeholder?: string,
-    opts?: PermissionDialogOptions,
-  ): Promise<string | undefined>;
-}
-
-const APPROVE_OPTION = "Yes";
-const APPROVE_FOR_SESSION_OPTION = "Yes, for this session";
-const DENY_OPTION = "No";
-const DENY_WITH_REASON_OPTION = "No, provide reason";
-
-/**
- * A session-granting decision, naming its width only when it is not the
- * default — so a narrow grant serializes exactly as it did before the width
- * option existed.
- */
-function sessionApproval(
-  state: "approved_for_session" | "approved_for_serving_session",
-  width: SessionGrantWidth,
-): UnattributedDecision {
-  return {
-    approved: true,
-    state,
-    ...(width === "family" ? { sessionGrantWidth: width } : {}),
-  };
 }
 
 export function normalizePermissionDenialReason(
@@ -135,23 +158,19 @@ export function isPermissionDecisionState(
 }
 
 export interface RequestPermissionOptions {
-  /** Override the "for this session" option label (e.g. to show the suggested pattern). */
+  /** Override the session option's label (e.g. to show the suggested pattern). */
   sessionLabel?: string;
   /**
-   * Present iff this ask's session grant can be widened to both directions:
-   * its label is the extra option shown beside the proven-direction one
-   * (#813). Absent leaves the prompt exactly four options.
+   * Present iff this ask was forwarded from a subagent: without it the
+   * session row grants the serving session's own, not the requester's.
    */
-  sessionWidth?: { label: string };
+  forwarded?: boolean;
   /**
-   * Forwarded asks only: when set, choosing the "for this session" option opens
-   * a second select asking whether the grant applies to the requesting subagent
-   * only (the least-privilege default) or the whole serving session.
+   * Forwarded asks carrying a scope choice (the child's gate suggested
+   * session grants): adds the whole-serving-session row beside the
+   * requesting-subagent one.
    */
-  sessionScope?: {
-    subagentLabel: string;
-    servingSessionLabel: string;
-  };
+  sessionScope?: boolean;
 }
 
 /**
@@ -173,74 +192,27 @@ export async function requestPermissionDecisionFromUi(
   const dialogOptions: PermissionDialogOptions = { signal };
   const dismissed = (answer: string | undefined): boolean =>
     answer === undefined && signal?.aborted === true;
-  const sessionOption = options?.sessionLabel ?? APPROVE_FOR_SESSION_OPTION;
-  const widthOption = options?.sessionWidth?.label;
-  const decisionOptions = [
-    APPROVE_OPTION,
-    sessionOption,
-    ...(widthOption ? [widthOption] : []),
-    DENY_OPTION,
-    DENY_WITH_REASON_OPTION,
-  ];
+  const rows = promptOptions(options);
 
   const selected = await ui.select(
     `${title}\n${message}`,
-    decisionOptions,
+    rows.map((row) => row.label),
     dialogOptions,
   );
   if (dismissed(selected)) {
     return undefined;
   }
 
-  if (selected === APPROVE_OPTION) {
-    return {
-      approved: true,
-      state: "approved",
-    };
+  // A cancelled select (undefined, signal live) falls through to deny, the
+  // same answer the old trailing fallthrough gave it.
+  switch (rows.find((row) => row.label === selected)?.action) {
+    case "approve":
+      return { approved: true, state: "approved" };
+    case "approveSession":
+      return { approved: true, state: "approved_for_session" };
+    case "approveSessionBoth":
+      return { approved: true, state: "approved_for_serving_session" };
+    default:
+      return createDeniedPermissionDecision();
   }
-
-  if (selected === sessionOption || (widthOption && selected === widthOption)) {
-    // The two session options differ only in the width they grant; the scope
-    // question below is the same for both.
-    const width: SessionGrantWidth =
-      selected === widthOption ? "family" : "proven";
-    if (options?.sessionScope) {
-      const scope = await ui.select(
-        `${title}\nApply this session grant to:`,
-        [
-          options.sessionScope.subagentLabel,
-          options.sessionScope.servingSessionLabel,
-        ],
-        dialogOptions,
-      );
-      if (dismissed(scope)) {
-        return undefined;
-      }
-      return sessionApproval(
-        // A cancelled scope select (undefined) falls back to the
-        // least-privilege subagent scope.
-        scope === options.sessionScope.servingSessionLabel
-          ? "approved_for_serving_session"
-          : "approved_for_session",
-        width,
-      );
-    }
-    return sessionApproval("approved_for_session", width);
-  }
-
-  if (selected === DENY_WITH_REASON_OPTION) {
-    const typed = await ui.input(
-      `${title}\nShare why this request was denied (optional).`,
-      "Reason shown back to the agent",
-      dialogOptions,
-    );
-    if (dismissed(typed)) {
-      return undefined;
-    }
-    const denialReason = normalizePermissionDenialReason(typed);
-
-    return createDeniedPermissionDecision(denialReason);
-  }
-
-  return createDeniedPermissionDecision();
 }

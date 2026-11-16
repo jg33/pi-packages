@@ -215,10 +215,9 @@ describe("presentInlinePermissionPrompt", () => {
     const text = captured.component?.render(80).join("\n") ?? "";
     expect(text).toContain("tool : read");
     expect(text).toContain("path : /repo/secret.txt");
-    expect(text).toContain("Yes");
-    expect(text).toContain("No, provide reason");
-    expect(text).toContain("y");
-    expect(text).toContain("r");
+    expect(text).toContain("allow");
+    expect(text).toContain("allow for all agents");
+    expect(text).toContain("deny");
   });
 
   it("opts into the blocked program status with kind permission and an approve message", () => {
@@ -237,7 +236,7 @@ describe("presentInlinePermissionPrompt", () => {
   it("renders the decision options in the model's display order", () => {
     const { view, captured } = makeFakeView(true);
     void presentInlinePermissionPrompt(view, "Permission Required", ASK);
-    expect(decisionOptionKeys(captured)).toEqual(["1", "2", "3", "4"]);
+    expect(decisionOptionKeys(captured)).toEqual(["1", "2", "3"]);
   });
 
   it("clips every rendered line to the terminal width", () => {
@@ -278,7 +277,7 @@ describe("presentInlinePermissionPrompt", () => {
       await Promise.resolve();
       expect(settled).toBe(false);
       const text = captured.component?.render(80).join("\n") ?? "";
-      expect(text).toContain("Press y again to approve.");
+      expect(text).toContain("Press y again to allow.");
     });
 
     it("resolves denied on n, n", async () => {
@@ -309,7 +308,7 @@ describe("presentInlinePermissionPrompt", () => {
       void presentInlinePermissionPrompt(view, "Permission Required", ASK);
       // The row shows its position: deny's "e" remap does not move row 3,
       // and no configured binding is ever a digit (1-9 are reserved).
-      expect(decisionOptionKeys(captured)).toEqual(["1", "2", "3", "4"]);
+      expect(decisionOptionKeys(captured)).toEqual(["1", "2", "3"]);
     });
 
     it("commits the decision whose configured binding was pressed", async () => {
@@ -345,7 +344,7 @@ describe("presentInlinePermissionPrompt", () => {
         );
         captured.component?.handleInput("1");
         expect(captured.component?.render(80).join("\n") ?? "").toContain(
-          "Press 1 again to approve.",
+          "Press 1 again to allow.",
         );
         captured.component?.handleInput("\r");
         await expect(promise).resolves.toMatchObject({
@@ -356,23 +355,23 @@ describe("presentInlinePermissionPrompt", () => {
 
       it("maps digits by the rendered order, not by action identity", async () => {
         // Narrow roster: the both-directions row is absent, so row 3 is deny.
-        // A mapping keyed on OPTION_ORDER would select the absent
-        // both-directions action instead and nothing would resolve here.
+        // A mapping keyed on a fixed option order would select the absent
+        // action instead and nothing would resolve here.
         expect(await runPrompt(false, ["3"])).toMatchObject({
           approved: false,
           state: "denied",
         });
-        // Wide roster: row 3 becomes the both-directions grant, because the
+        // Wide roster: row 3 becomes the all-agents grant, because the
         // number follows the rendered roster (actionOrdinal), not the action's
-        // fixed identity in OPTION_ORDER.
+        // fixed identity.
         expect(
           await runPrompt(false, ["3"], {
-            sessionWidth: { label: "Yes, both directions for /tmp/*" },
+            forwarded: true,
+            sessionScope: true,
           }),
         ).toMatchObject({
           approved: true,
-          state: "approved_for_session",
-          sessionGrantWidth: "family",
+          state: "approved_for_serving_session",
         });
       });
 
@@ -479,114 +478,6 @@ describe("presentInlinePermissionPrompt", () => {
     });
   });
 
-  describe("deny with reason", () => {
-    it("collects a typed reason and resolves denied_with_reason", async () => {
-      const decision = await runPrompt(false, ["r", "n", "o", "p", "e", ENTER]);
-      expect(decision).toEqual({
-        approved: false,
-        state: "denied_with_reason",
-        denialReason: "nope",
-      });
-    });
-
-    it("rejects an empty reason and shows an error, then accepts a real one", async () => {
-      const { view, captured } = makeFakeView(false);
-      const promise = presentInlinePermissionPrompt(view, "T", ASK);
-      captured.component?.handleInput("r"); // opens reason step
-      captured.component?.handleInput(ENTER); // empty submit -> rejected
-      const text = captured.component?.render(80).join("\n") ?? "";
-      expect(text).toContain("A reason is required.");
-      captured.component?.handleInput("x");
-      captured.component?.handleInput(ENTER);
-      expect(await promise).toEqual({
-        approved: false,
-        state: "denied_with_reason",
-        denialReason: "x",
-      });
-    });
-
-    it("supports backspace while editing the reason", async () => {
-      const decision = await runPrompt(false, [
-        "r",
-        "a",
-        "b",
-        "\u007f", // backspace removes "b"
-        ENTER,
-      ]);
-      expect(decision).toEqual({
-        approved: false,
-        state: "denied_with_reason",
-        denialReason: "a",
-      });
-    });
-
-    it("accepts pasted text into the reason", async () => {
-      expect(
-        await runPrompt(false, ["r", paste("pasted text"), ENTER]),
-      ).toEqual({
-        approved: false,
-        state: "denied_with_reason",
-        denialReason: "pasted text",
-      });
-    });
-
-    it("flattens a multi-line paste into one readable line", async () => {
-      expect(
-        await runPrompt(false, [
-          "r",
-          paste("denied because it touches\n~/.ssh"),
-          ENTER,
-        ]),
-      ).toEqual({
-        approved: false,
-        state: "denied_with_reason",
-        denialReason: "denied because it touches ~/.ssh",
-      });
-    });
-
-    it("keeps a pasted reason on one row, however long it is", () => {
-      const { view, captured } = makeFakeView(false);
-      void presentInlinePermissionPrompt(view, "Title", ASK);
-      captured.component?.handleInput("r");
-      const before = captured.component?.render(40) ?? [];
-
-      // "q" appears nowhere else in this render; "x" would match `secret.txt`.
-      captured.component?.handleInput(paste("q".repeat(500)));
-      const after = captured.component?.render(40) ?? [];
-
-      expect(after).toHaveLength(before.length);
-      expect(after.join("\n")).toContain("qqq");
-      for (const line of after) {
-        expect(visibleWidth(line)).toBeLessThanOrEqual(40);
-      }
-    });
-
-    it("drops the expand key instead of typing it into the reason", async () => {
-      const { view, captured, setToolsExpanded } = makeFakeView(false);
-      const promise = presentInlinePermissionPrompt(view, "Title", ASK);
-
-      captured.component?.handleInput("r");
-      captured.component?.handleInput("a");
-      captured.component?.handleInput(CTRL_O);
-      captured.component?.handleInput(ENTER);
-
-      expect(await promise).toEqual({
-        approved: false,
-        state: "denied_with_reason",
-        denialReason: "a",
-      });
-      expect(setToolsExpanded).not.toHaveBeenCalled();
-    });
-
-    it("navigates back to the decision step on escape from the reason step", async () => {
-      // r opens reason, esc returns to decision, then n deny
-      expect(await runPrompt(false, ["r", ESCAPE, "n"])).toEqual({
-        approved: false,
-        state: "denied",
-      });
-    });
-  });
-
   describe("requestPermissionDecision dispatch", () => {
     it("renders the inline dialog in TUI mode", async () => {
       const { view, captured } = makeFakeView(true);
@@ -640,7 +531,7 @@ describe("presentInlinePermissionPrompt", () => {
 
     it("falls back to the select flow outside TUI mode", async () => {
       const custom = vi.fn();
-      const select = vi.fn().mockResolvedValue("Yes");
+      const select = vi.fn().mockResolvedValue("allow");
       const view = makeView("rpc", {
         select,
         input: vi.fn(),
@@ -663,7 +554,7 @@ describe("presentInlinePermissionPrompt", () => {
     });
 
     it("attributes a denial to the surface the human answered on", async () => {
-      const select = vi.fn().mockResolvedValue("No");
+      const select = vi.fn().mockResolvedValue("deny");
       const view = makeView("rpc", {
         select,
         input: vi.fn(),
@@ -845,75 +736,48 @@ describe("presentInlinePermissionPrompt", () => {
     });
   });
 
-  describe("both-directions session grant (#813)", () => {
-    const sessionWidth = {
-      label: 'Yes, allow reads and writes to "/tmp/*" for this session',
-    };
-
-    it("renders the width row after the session row when the ask is widenable", () => {
-      const { view, captured } = makeFakeView(true);
-      void presentInlinePermissionPrompt(view, "Permission Required", ASK, {
-        sessionLabel: 'Yes, allow writes to "/tmp/*" for this session',
-        sessionWidth,
-      });
-      expect(decisionOptionKeys(captured)).toEqual(["1", "2", "3", "4", "5"]);
-      expect(captured.component?.render(120).join("\n")).toContain(
-        sessionWidth.label,
-      );
-    });
-
-    it("renders no width row for an ask that is not widenable", () => {
+  describe("the option roster", () => {
+    it("renders three rows without a scope choice", () => {
       const { view, captured } = makeFakeView(true);
       void presentInlinePermissionPrompt(view, "Permission Required", ASK);
+      expect(decisionOptionKeys(captured)).toEqual(["1", "2", "3"]);
+    });
+
+    it("renders the fourth row when a scope choice is offered", () => {
+      const { view, captured } = makeFakeView(true);
+      void presentInlinePermissionPrompt(view, "Permission Required", ASK, {
+        forwarded: true,
+        sessionScope: true,
+      });
       expect(decisionOptionKeys(captured)).toEqual(["1", "2", "3", "4"]);
-    });
-
-    it("commits the family width on the b hotkey", async () => {
-      expect(await runPrompt(false, ["b"], { sessionWidth })).toEqual({
-        approved: true,
-        state: "approved_for_session",
-        sessionGrantWidth: "family",
-      });
-    });
-
-    it("leaves the s hotkey at the proven width", async () => {
-      expect(await runPrompt(false, ["s"], { sessionWidth })).toEqual({
-        approved: true,
-        state: "approved_for_session",
-      });
+      expect(captured.component?.render(120).join("\n")).toContain(
+        "allow for this agent",
+      );
     });
   });
 
-  describe("approve-for-session scope (forwarded asks)", () => {
+  describe("the scope choice in the first prompt", () => {
     const options: RequestPermissionOptions = {
-      sessionScope: {
-        subagentLabel: "This subagent only",
-        servingSessionLabel: "The whole session",
-      },
+      forwarded: true,
+      sessionScope: true,
     };
 
-    it("commits the subagent scope by default", async () => {
-      expect(await runPrompt(false, ["s", ENTER], options)).toEqual({
+    it("commits the agent-only session row directly", async () => {
+      expect(await runPrompt(false, ["s"], options)).toEqual({
         approved: true,
         state: "approved_for_session",
       });
     });
 
-    it("commits the serving-session scope when the second option is chosen", async () => {
-      expect(await runPrompt(false, ["s", ARROW_DOWN, ENTER], options)).toEqual(
-        { approved: true, state: "approved_for_serving_session" },
-      );
+    it("commits the all-agents row directly", async () => {
+      expect(await runPrompt(false, ["b"], options)).toEqual({
+        approved: true,
+        state: "approved_for_serving_session",
+      });
     });
   });
 
   describe("tool expansion", () => {
-    const scopeOptions: RequestPermissionOptions = {
-      sessionScope: {
-        subagentLabel: "This subagent only",
-        servingSessionLabel: "The whole session",
-      },
-    };
-
     it("toggles tool expansion without settling the decision", async () => {
       const { view, captured, getToolsExpanded, setToolsExpanded } =
         makeFakeView(true);
@@ -939,26 +803,6 @@ describe("presentInlinePermissionPrompt", () => {
       // Unattributed: the inline component states the outcome, and the
       // dispatcher above it names the surface the human answered on.
       expect(await promise).toEqual({ approved: true, state: "approved" });
-    });
-
-    it("toggles during the scope step without committing the grant", async () => {
-      const { view, captured, setToolsExpanded } = makeFakeView(false);
-      const promise = presentInlinePermissionPrompt(
-        view,
-        "Title",
-        ASK,
-        scopeOptions,
-      );
-
-      captured.component?.handleInput("s"); // decision -> scope
-      captured.component?.handleInput(CTRL_O);
-      expect(setToolsExpanded).toHaveBeenNthCalledWith(1, true);
-
-      captured.component?.handleInput(ENTER);
-      expect(await promise).toEqual({
-        approved: true,
-        state: "approved_for_session",
-      });
     });
 
     it("expands the dialog to the complete request and back", () => {
@@ -990,26 +834,6 @@ describe("presentInlinePermissionPrompt", () => {
       void presentInlinePermissionPrompt(view, "Title", ASK);
 
       expect(captured.component?.render(120).at(-1)).not.toContain("ctrl+o");
-    });
-
-    it("does not intercept the expand key while a denial reason is typed", async () => {
-      // Bound to a printable key on purpose: the default Ctrl+O is a control
-      // character the reason editor rejects anyway, so it cannot discriminate.
-      const { view, captured, setToolsExpanded } = makeFakeView(false, {
-        expandKey: "e",
-      });
-      const promise = presentInlinePermissionPrompt(view, "Title", ASK);
-
-      captured.component?.handleInput("r"); // decision -> reason
-      captured.component?.handleInput("e"); // typed literally, not an app action
-      captured.component?.handleInput(ENTER);
-
-      expect(await promise).toEqual({
-        approved: false,
-        state: "denied_with_reason",
-        denialReason: "e",
-      });
-      expect(setToolsExpanded).not.toHaveBeenCalled();
     });
   });
 });

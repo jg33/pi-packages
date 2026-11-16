@@ -87,7 +87,7 @@ describe("fullscreen dock paint — the options must survive the clip", () => {
         const digit = OPTION_ROW.exec(line)?.[2];
         return digit === undefined ? [] : [Number(digit)];
       });
-      expect(numbers, `rows=${rows}`).toEqual([1, 2, 3, 4]);
+      expect(numbers, `rows=${rows}`).toEqual([1, 2, 3]);
     }
   });
 

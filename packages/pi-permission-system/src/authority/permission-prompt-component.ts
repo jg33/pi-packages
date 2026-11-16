@@ -3,12 +3,7 @@ import type {
   ExtensionUIContext,
   KeybindingsManager,
 } from "@earendil-works/pi-coding-agent";
-import {
-  type Component,
-  Input,
-  type KeyId,
-  matchesKey,
-} from "@earendil-works/pi-tui";
+import { type Component, type KeyId, matchesKey } from "@earendil-works/pi-tui";
 import type { PromptNotificationChannel } from "#src/config/config-schema";
 import type { DialogKeyBindings, PromptAction } from "#src/config/dialog-keys";
 import {
@@ -24,10 +19,10 @@ import {
 } from "#src/presentation/prompt-notification";
 import type { PromptPayload } from "#src/presentation/prompt-payload";
 import { AnswerWindow } from "./answer-window";
-import { collapsePastedNewlines } from "./bracketed-paste";
 import type { DecisionSource, UserDecisionSurface } from "./decision-source";
 import {
   type PermissionPromptDecision,
+  promptOptions,
   type RequestPermissionOptions,
   requestPermissionDecisionFromUi,
   type UnattributedDecision,
@@ -203,16 +198,6 @@ const FALLBACK_RENDER_WIDTH = 80;
 /** The theme surface the dialog paints with; structurally satisfied by the SDK theme. */
 type PromptTheme = ChromeTheme;
 
-const DEFAULT_SESSION_LABEL = "Yes, for this session";
-
-const OPTION_LABELS: Record<PromptAction, string> = {
-  approve: "Yes",
-  approveSession: DEFAULT_SESSION_LABEL,
-  approveSessionBoth: "Yes, for this session in both directions",
-  deny: "No",
-  denyWithReason: "No, provide reason",
-};
-
 /**
  * Show the inline dialog. The clock's signal dismisses it: an abort closes the
  * dialog and answers `undefined`, so a caller can tell a dismissal from a
@@ -227,8 +212,8 @@ export function presentInlinePermissionPrompt(
 ): Promise<UnattributedDecision | undefined> {
   const config: PromptModelConfig = {
     doublePressToConfirm: view.doublePressToConfirm,
-    sessionLabel: options?.sessionLabel ?? DEFAULT_SESSION_LABEL,
-    widthLabel: options?.sessionWidth?.label,
+    sessionLabel: options?.sessionLabel,
+    forwarded: options?.forwarded,
     sessionScope: options?.sessionScope,
     keys: view.dialogKeys,
   };
@@ -312,8 +297,6 @@ function handleToolsExpandAction(
 
 class PermissionPromptComponent implements Component {
   private state: PromptViewState;
-  /** The denial-reason line editor, rebuilt each time the step is entered. */
-  private reason: Input;
   /** Whether the operator asked to see the complete request (ADR 0011 §4). */
   private expanded = false;
 
@@ -330,28 +313,6 @@ class PermissionPromptComponent implements Component {
     private readonly getTerminalRows: () => number,
   ) {
     this.state = initialPromptState(config);
-    this.reason = this.createReasonEditor();
-  }
-
-  /**
-   * A fresh editor per visit to the reason step.
-   *
-   * The framework editor carries an undo stack and a kill ring, so reusing one
-   * instance would let a reason the operator backed out of be restored into a
-   * later ask.
-   */
-  private createReasonEditor(): Input {
-    const editor = new Input();
-    // Emits pi-tui's zero-width cursor marker, which positions the hardware
-    // cursor for IME composition.
-    editor.focused = true;
-    editor.onSubmit = (draft) => {
-      this.apply({ type: "submitReason", draft });
-    };
-    editor.onEscape = () => {
-      this.apply({ type: "cancel" });
-    };
-    return editor;
   }
 
   invalidate(): void {
@@ -359,18 +320,7 @@ class PermissionPromptComponent implements Component {
   }
 
   render(width: number): string[] {
-    return fitLinesToWidth(this.renderStep(width), width);
-  }
-
-  private renderStep(width: number): string[] {
-    switch (this.state.step) {
-      case "decision":
-        return this.renderDecision(width);
-      case "reason":
-        return this.renderReason(width);
-      case "scope":
-        return this.renderScope(width);
-    }
+    return fitLinesToWidth(this.renderDecision(width), width);
   }
 
   /**
@@ -425,10 +375,6 @@ class PermissionPromptComponent implements Component {
 
   handleInput(data: string): void {
     this.engageClock();
-    if (this.state.step === "reason") {
-      this.handleReasonInput(data);
-      return;
-    }
     if (this.handleAppAction(data)) {
       // One "expand" for the operator: the host expands its pending tool call
       // and the dialog expands its own render, on the same keystroke.
@@ -457,20 +403,6 @@ class PermissionPromptComponent implements Component {
     this.requestRender();
   }
 
-  /**
-   * Hand the keystroke to the framework line editor.
-   *
-   * Delegating is what makes the field accept a paste: a paste arrives as one
-   * multi-character chunk wrapped in bracketed-paste markers, which the editor
-   * understands and a per-character reader cannot. Submit and cancel come back
-   * through the editor's callbacks, so the decision model still owns them.
-   */
-  private handleReasonInput(data: string): void {
-    this.reason.handleInput(collapsePastedNewlines(data));
-    // The editor mutates its own buffer silently; only the dialog can repaint.
-    this.requestRender();
-  }
-
   private toEvent(data: string): PromptEvent | undefined {
     if (matchesKey(data, "up") || matchesKey(data, "k")) {
       return { type: "nav", direction: "up" };
@@ -484,31 +416,29 @@ class PermissionPromptComponent implements Component {
     if (matchesKey(data, "escape")) {
       return { type: "cancel" };
     }
-    if (this.state.step === "decision") {
-      const actions = visibleActions(this.config);
-      // The ordinal is resolved first because it is the rendered label: rows
-      // show actionOrdinal, so the digit a row shows must select that row.
-      // The reserved-digit rule (RESERVED_DIALOG_KEYS) guarantees no
-      // configured binding can be a digit, so this order cannot shadow a
-      // binding any real config can express.
-      const position = actions.findIndex((_, index) =>
-        matchesKey(data, String(index + 1) as KeyId),
-      );
-      if (position >= 0) {
-        // Echo the matched character, never the raw keystroke: matchesKey also
-        // accepts CSI-u sequences, which must not surface in the hint.
-        return {
-          type: "hotkey",
-          action: actions[position],
-          key: String(position + 1),
-        };
-      }
-      const bound = actions.find((option) =>
-        matchesKey(data, this.boundKey(option)),
-      );
-      if (bound) {
-        return { type: "hotkey", action: bound, key: this.boundKey(bound) };
-      }
+    const actions = visibleActions(this.config);
+    // The ordinal is resolved first because it is the rendered label: rows
+    // show actionOrdinal, so the digit a row shows must select that row.
+    // The reserved-digit rule (RESERVED_DIALOG_KEYS) guarantees no
+    // configured binding can be a digit, so this order cannot shadow a
+    // binding any real config can express.
+    const position = actions.findIndex((_, index) =>
+      matchesKey(data, String(index + 1) as KeyId),
+    );
+    if (position >= 0) {
+      // Echo the matched character, never the raw keystroke: matchesKey also
+      // accepts CSI-u sequences, which must not surface in the hint.
+      return {
+        type: "hotkey",
+        action: actions[position],
+        key: String(position + 1),
+      };
+    }
+    const bound = actions.find((option) =>
+      matchesKey(data, this.boundKey(option)),
+    );
+    if (bound) {
+      return { type: "hotkey", action: bound, key: this.boundKey(bound) };
     }
     return undefined;
   }
@@ -519,20 +449,17 @@ class PermissionPromptComponent implements Component {
       this.done(outcome.decision);
       return;
     }
-    if (outcome.state.step === "reason" && this.state.step !== "reason") {
-      this.reason = this.createReasonEditor();
-    }
     this.state = outcome.state;
     this.requestRender();
   }
 
   private renderDecision(width: number): string[] {
-    const ask = this.renderAsk(width, visibleActions(this.config).length);
-    const rows = visibleActions(this.config).map((action) => ({
-      key: String(actionOrdinal(this.config, action)),
-      label: this.labelFor(action),
-      selected: this.state.highlightedAction === action,
+    const rows = promptOptions(this.config).map((row) => ({
+      key: String(actionOrdinal(this.config, row.action)),
+      label: row.label,
+      selected: this.state.highlightedAction === row.action,
     }));
+    const ask = this.renderAsk(width, rows.length);
     const hint = this.state.hint
       ? hintRow(this.theme, [this.state.hint], "warning")
       : hintRow(this.theme, this.hintParts(ask));
@@ -553,66 +480,5 @@ class PermissionPromptComponent implements Component {
    */
   private boundKey(action: PromptAction): KeyId {
     return this.config.keys[action] as KeyId;
-  }
-
-  /**
-   * The row label for a key: the two session options carry ask-supplied text
-   * naming what they grant, and the rest are fixed.
-   */
-  private labelFor(action: PromptAction): string {
-    if (action === "approveSession") return this.config.sessionLabel;
-    if (action === "approveSessionBoth") {
-      return this.config.widthLabel ?? OPTION_LABELS.approveSessionBoth;
-    }
-    return OPTION_LABELS[action];
-  }
-
-  private renderReason(width: number): string[] {
-    const body = [
-      ...indentRows(this.renderAsk(width, 3).lines), // 3 = prompt, editor, error
-      "",
-      ` ${this.theme.bold("Reason (required):")}`,
-      // Exactly one row, whatever its length: the editor scrolls horizontally.
-      ...this.reason.render(width),
-    ];
-    if (this.state.reasonError) {
-      body.push(` ${this.theme.fg("error", this.state.reasonError)}`);
-    }
-    return frame(
-      this.theme,
-      width,
-      this.title,
-      body,
-      hintRow(this.theme, ["Enter to submit", "Esc to go back"]),
-    );
-  }
-
-  private renderScope(width: number): string[] {
-    const scope = this.config.sessionScope;
-    const rows = [
-      { label: scope?.subagentLabel ?? "This subagent only", serving: false },
-      {
-        label: scope?.servingSessionLabel ?? "The whole session",
-        serving: true,
-      },
-    ].map((row) => ({
-      label: row.label,
-      selected: this.state.scopeServing === row.serving,
-    }));
-    return frame(
-      this.theme,
-      width,
-      this.title,
-      [
-        ` ${this.theme.bold("Apply this session grant to:")}`,
-        "",
-        ...optionRows(this.theme, rows, width),
-      ],
-      hintRow(this.theme, [
-        "↑/↓ to navigate",
-        "Enter to select",
-        "Esc to go back",
-      ]),
-    );
   }
 }

@@ -398,7 +398,7 @@ describe("LocalUserAuthorizer", () => {
         },
         "Permission Required (Subagent)",
         details.payload,
-        undefined,
+        { forwarded: true },
       );
     });
 
@@ -423,16 +423,13 @@ describe("LocalUserAuthorizer", () => {
         "Permission Required (Subagent)",
         expect.anything(),
         {
-          sessionScope: {
-            subagentLabel: "This subagent ('Explore') only",
-            servingSessionLabel:
-              'The whole session — allow bash "git *" for parent and all subagents',
-          },
+          forwarded: true,
+          sessionScope: true,
         },
       );
     });
 
-    it("names every path in the scope label when the ask covers several", async () => {
+    it("names every path in the session label when the ask covers several", async () => {
       const { deps, decisionFn } = makeDeps();
       const authorizer = new LocalUserAuthorizer(deps);
 
@@ -458,10 +455,9 @@ describe("LocalUserAuthorizer", () => {
         expect.any(String),
         expect.anything(),
         expect.objectContaining({
-          sessionScope: expect.objectContaining({
-            servingSessionLabel:
-              "The whole session — allow external_directory 2 paths for parent and all subagents",
-          }),
+          forwarded: true,
+          sessionScope: true,
+          sessionLabel: expect.stringContaining("2 paths"),
         }),
       );
     });
@@ -483,7 +479,7 @@ describe("LocalUserAuthorizer", () => {
         expect.anything(),
         expect.any(String),
         expect.anything(),
-        undefined,
+        { forwarded: true },
       );
     });
   });
@@ -506,14 +502,11 @@ describe("LocalUserAuthorizer", () => {
       );
     }
 
-    it("offers the width option when every grant proves one direction", async () => {
+    it("offers the direction label when every grant proves one direction", async () => {
       await expectOptionsFor(
         [{ surface: "external_directory_write", pattern: "/tmp/*" }],
         {
           sessionLabel: 'Yes, allow writes to "/tmp/*" for this session',
-          sessionWidth: {
-            label: 'Yes, allow reads and writes to "/tmp/*" for this session',
-          },
         },
       );
     });
@@ -526,9 +519,6 @@ describe("LocalUserAuthorizer", () => {
         ],
         {
           sessionLabel: "Yes, allow reads to 2 paths for this session",
-          sessionWidth: {
-            label: "Yes, allow reads and writes to 2 paths for this session",
-          },
         },
       );
     });

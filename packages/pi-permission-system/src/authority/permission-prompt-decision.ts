@@ -1,9 +1,8 @@
 import type { DialogKeyBindings, PromptAction } from "#src/config/dialog-keys";
-import type { SessionGrantWidth } from "#src/session/approval-grant";
 import {
   createDeniedPermissionDecision,
-  normalizePermissionDenialReason,
-  type RequestPermissionOptions,
+  type PromptOptionAction,
+  promptOptions,
   type UnattributedDecision,
 } from "./permission-dialog";
 
@@ -11,49 +10,24 @@ import {
  * Pure decision model for the inline keybind permission dialog.
  *
  * The interaction logic — which hotkey produces which decision, double-press
- * arming, step transitions, and reason validation — lives here with no SDK or
- * TUI imports, so it is unit-testable directly. The `ctx.ui.custom` component
+ * arming, and which options an ask offers — lives here with no SDK or TUI
+ * imports, so it is unit-testable directly. The `ctx.ui.custom` component
  * ({@link file://./permission-prompt-component.ts}) is a thin adapter that
  * forwards keystrokes to {@link reducePrompt} and renders the returned state.
  */
 
-/** Which sub-view the dialog is showing. */
-export type PromptStep = "decision" | "reason" | "scope";
-
-/**
- * The decisions in display order.
- *
- * `approveSessionBoth` is conditional: it appears only for an ask whose session
- * grant can be widened to both directions (#813), so the roster an ask actually
- * offers comes from {@link visibleActions} rather than from this list.
- */
-const OPTION_ORDER: readonly PromptAction[] = [
-  "approve",
-  "approveSession",
-  "approveSessionBoth",
-  "deny",
-  "denyWithReason",
-];
-
-const NARROW_OPTION_ORDER: readonly PromptAction[] = OPTION_ORDER.filter(
-  (action) => action !== "approveSessionBoth",
-);
-
 /**
  * The decision step's options, in display order.
  *
- * A function of the config rather than an exported constant, so which options
- * an ask offers is decided in the model and the component renders whatever it
- * is handed — two copies of the roster would be two places to teach about a
- * conditional option.
- *
- * The width option is offered iff the ask supplied a label for it, so an ask
- * that proves no single direction is rendered and navigated exactly as before.
+ * Straight through {@link promptOptions} — the one roster source the fallback
+ * dialog and the component's rows also render — so which options an ask
+ * offers is decided once, in the model, and the component renders whatever it
+ * is handed.
  */
 export function visibleActions(
   config: PromptModelConfig,
-): readonly PromptAction[] {
-  return config.widthLabel ? OPTION_ORDER : NARROW_OPTION_ORDER;
+): readonly PromptOptionAction[] {
+  return promptOptions(config).map((row) => row.action);
 }
 
 /**
@@ -70,15 +44,18 @@ export function actionOrdinal(
   config: PromptModelConfig,
   action: PromptAction,
 ): number {
-  return visibleActions(config).indexOf(action) + 1;
+  // The cast states the contract: an action outside the roster is looked up,
+  // not rejected, so it finds nothing and numbers 0.
+  return (
+    (visibleActions(config) as readonly PromptAction[]).indexOf(action) + 1
+  );
 }
 
-const OPTION_VERBS: Record<PromptAction, string> = {
-  approve: "approve",
-  approveSession: "approve for this session",
-  approveSessionBoth: "approve both directions for this session",
+const OPTION_VERBS: Record<PromptOptionAction, string> = {
+  approve: "allow",
+  approveSession: "allow for this agent",
+  approveSessionBoth: "allow for all agents",
   deny: "deny",
-  denyWithReason: "deny with a reason",
 };
 
 /** Static configuration for a single prompt presentation. */
@@ -92,53 +69,41 @@ export interface PromptModelConfig {
    * option's identity and the key that selects it are separate values.
    */
   keys: DialogKeyBindings;
-  /** Label shown beside the approve-for-session option. */
-  sessionLabel: string;
+  /** Override for the session row's label (the gate's suggested pattern). */
+  sessionLabel?: string;
   /**
-   * Label for the both-directions session option (#813).
-   *
-   * Its presence is what offers the option: an ask whose grants prove no
-   * single direction supplies none, and the roster stays four keys.
+   * Present iff this ask was forwarded from a subagent: the session row
+   * grants the requesting subagent's own session rather than the serving
+   * session's.
    */
-  widthLabel?: string;
+  forwarded?: boolean;
   /**
-   * Forwarded asks only: when set, confirming `s` opens a second step choosing
-   * whether the grant applies to the requesting subagent only (least-privilege
-   * default) or the whole serving session.
+   * Forwarded asks carrying a scope choice: adds the whole-serving-session
+   * row. The scope decision commits in the first prompt — there is no second
+   * step.
    */
-  sessionScope?: NonNullable<RequestPermissionOptions["sessionScope"]>;
+  sessionScope?: boolean;
 }
 
 /** The re-render view state the component draws from. */
 export interface PromptViewState {
-  step: PromptStep;
-  highlightedAction: PromptAction;
+  highlightedAction: PromptOptionAction;
   /** Set only while awaiting the confirming second press of a hotkey. */
-  armedAction?: PromptAction;
-  /** "Press 1 again to approve." while armed (echoing the pressed key, or the configured binding); empty otherwise. */
+  armedAction?: PromptOptionAction;
+  /** "Press 1 again to allow." while armed (echoing the pressed key, or the configured binding); empty otherwise. */
   hint: string;
-  /** Set when an empty reason submit is rejected. */
-  reasonError?: string;
-  /** Scope step: false = subagent-only (default), true = whole serving session. */
-  scopeServing: boolean;
-  /**
-   * The width the session option chosen so far would grant.
-   *
-   * Held on the state rather than passed to the scope step, because a
-   * forwarded ask commits the two choices in different steps. Reset to
-   * `"proven"` on every return to the decision step, so a width the user
-   * backed out of cannot ride along with a later narrow choice.
-   */
-  grantWidth: SessionGrantWidth;
 }
 
 /** An input event the reducer understands. */
 export type PromptEvent =
   | { type: "nav"; direction: "up" | "down" }
-  | { type: "hotkey"; action: PromptAction; key?: string }
+  | {
+      type: "hotkey";
+      action: PromptOptionAction;
+      key?: string;
+    }
   | { type: "confirm" }
-  | { type: "cancel" }
-  | { type: "submitReason"; draft: string };
+  | { type: "cancel" };
 
 /** Either a re-render or a terminal decision. */
 export type PromptOutcome =
@@ -149,13 +114,9 @@ export function initialPromptState(
   _config: PromptModelConfig,
 ): PromptViewState {
   return {
-    step: "decision",
     highlightedAction: "approve",
     armedAction: undefined,
     hint: "",
-    reasonError: undefined,
-    scopeServing: false,
-    grantWidth: "proven",
   };
 }
 
@@ -163,26 +124,14 @@ export function initialPromptState(
  * Advance the dialog by one input event, returning either the next view state
  * to render or the committed {@link UnattributedDecision}.
  *
+ * There is exactly one round: every option commits in the press (or the
+ * confirming second press) that selects it — no reason or scope follow-up.
+ *
  * The model states the outcome and not the decider: which human surface this
  * is gets attributed by the dispatcher that chose to render this dialog, so
  * the two cannot disagree about the surface.
  */
 export function reducePrompt(
-  config: PromptModelConfig,
-  state: PromptViewState,
-  event: PromptEvent,
-): PromptOutcome {
-  switch (state.step) {
-    case "decision":
-      return reduceDecisionStep(config, state, event);
-    case "reason":
-      return reduceReasonStep(state, event);
-    case "scope":
-      return reduceScopeStep(state, event);
-  }
-}
-
-function reduceDecisionStep(
   config: PromptModelConfig,
   state: PromptViewState,
   event: PromptEvent,
@@ -207,19 +156,17 @@ function reduceDecisionStep(
       return pressHotkey(config, state, state.highlightedAction);
     case "cancel":
       return { kind: "decision", decision: createDeniedPermissionDecision() };
-    case "submitReason":
-      return render(state);
   }
 }
 
 function pressHotkey(
   config: PromptModelConfig,
   state: PromptViewState,
-  action: PromptAction,
+  action: PromptOptionAction,
   key?: string,
 ): PromptOutcome {
   if (!config.doublePressToConfirm || state.armedAction === action) {
-    return commit(config, state, action);
+    return commit(action);
   }
   return render({
     ...state,
@@ -231,11 +178,7 @@ function pressHotkey(
   });
 }
 
-function commit(
-  config: PromptModelConfig,
-  state: PromptViewState,
-  action: PromptAction,
-): PromptOutcome {
+function commit(action: PromptOptionAction): PromptOutcome {
   switch (action) {
     case "approve":
       return {
@@ -244,124 +187,24 @@ function commit(
       };
     case "deny":
       return { kind: "decision", decision: createDeniedPermissionDecision() };
-    case "denyWithReason":
-      return render({
-        ...state,
-        step: "reason",
-        highlightedAction: "denyWithReason",
-        armedAction: undefined,
-        hint: "",
-        reasonError: undefined,
-      });
     case "approveSession":
-    case "approveSessionBoth": {
-      // The two session options differ only in the width they grant; which
-      // scope they land on is the forwarded scope step's separate question.
-      const grantWidth: SessionGrantWidth =
-        action === "approveSessionBoth" ? "family" : "proven";
-      if (config.sessionScope) {
-        return render({
-          ...state,
-          step: "scope",
-          highlightedAction: action,
-          armedAction: undefined,
-          hint: "",
-          scopeServing: false,
-          grantWidth,
-        });
-      }
       return {
         kind: "decision",
-        decision: sessionDecision("approved_for_session", grantWidth),
+        decision: { approved: true, state: "approved_for_session" },
       };
-    }
-  }
-}
-
-/**
- * A session-granting decision, naming its width only when it is not the
- * default.
- *
- * Absent means `"proven"` everywhere this value travels — the decision, the
- * gate result, and the forwarded wire — so the narrow grant serializes
- * exactly as it did before the option existed.
- */
-function sessionDecision(
-  state: "approved_for_session" | "approved_for_serving_session",
-  width: SessionGrantWidth,
-): UnattributedDecision {
-  return {
-    approved: true,
-    state,
-    ...(width === "family" ? { sessionGrantWidth: width } : {}),
-  };
-}
-
-function reduceReasonStep(
-  state: PromptViewState,
-  event: PromptEvent,
-): PromptOutcome {
-  if (event.type === "cancel") {
-    return render({
-      ...state,
-      step: "decision",
-      armedAction: undefined,
-      hint: "",
-      reasonError: undefined,
-      grantWidth: "proven",
-    });
-  }
-  if (event.type === "submitReason") {
-    const reason = normalizePermissionDenialReason(event.draft);
-    if (reason === undefined) {
-      return render({
-        ...state,
-        reasonError: "A reason is required.",
-      });
-    }
-    return {
-      kind: "decision",
-      decision: createDeniedPermissionDecision(reason),
-    };
-  }
-  return render(state);
-}
-
-function reduceScopeStep(
-  state: PromptViewState,
-  event: PromptEvent,
-): PromptOutcome {
-  switch (event.type) {
-    case "nav":
-      return render({ ...state, scopeServing: event.direction === "down" });
-    case "confirm":
+    case "approveSessionBoth":
       return {
         kind: "decision",
-        decision: sessionDecision(
-          state.scopeServing
-            ? "approved_for_serving_session"
-            : "approved_for_session",
-          state.grantWidth,
-        ),
+        decision: { approved: true, state: "approved_for_serving_session" },
       };
-    case "cancel":
-      return render({
-        ...state,
-        step: "decision",
-        armedAction: undefined,
-        hint: "",
-        grantWidth: "proven",
-      });
-    default:
-      return render(state);
   }
 }
 
 function shiftAction(
   config: PromptModelConfig,
-  current: PromptAction,
+  current: PromptOptionAction,
   direction: "up" | "down",
-): PromptAction {
+): PromptOptionAction {
   const actions = visibleActions(config);
   const index = actions.indexOf(current);
   const delta = direction === "down" ? 1 : -1;
