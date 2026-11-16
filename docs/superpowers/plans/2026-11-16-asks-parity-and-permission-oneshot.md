@@ -40,8 +40,24 @@ A2. If the herdr mod proves unable to consume a structured option list, stop tha
 5. Register one annotator that explains the pending command and why it is being run, and surfaces the jev-auto-mode ranking it already computed. It must stay advisory — `0add68bc` proves an annotator cannot decide or rewrite facts, and `3f6475cc` proves it never reaches the other renderers.
 6. Verify: `pnpm -C packages/pi-permission-system run check`; `pnpm -C packages/pi-permission-system run test`; `pnpm -C packages/pi-ask-herdr run typecheck`; `cd packages/pi-ask-herdr && node --import ./tests/typescript-transform-hooks.mjs --test tests/*.test.ts`. All green, output pasted.
 
+## Test baseline policy (decided by the user, binding)
+All four verify commands pass on the reference checkout: `pnpm -C packages/pi-permission-system run check`,
+`… run test` (196 files / 6668 tests), `pnpm -C packages/pi-ask-herdr run typecheck`, and the ask-herdr node suite
+(27 tests). If a command is red **in the worktree** because a sibling checkout or workspace link is missing, that is
+ENVIRONMENTAL: record the exact command and its output under SKIPPED with that evidence and move on.
+
+**Do NOT exclude, skip, or delete a failing test to make the gate green.** Green by deletion is worse than honestly
+red. If a test is red for a reason you cannot classify, report it as a QUESTION rather than removing it.
+
 ## Definition of done
-Every item done or in SKIPPED; all four commands green; `git status --porcelain` empty; commits on top of origin/feat/ask-user-dialog-parity.
+Every item done or in SKIPPED; the four verify commands green **or** a red one evidenced as environmental under
+SKIPPED; `git status --porcelain` empty except the agent's own `docs/superpowers/plans/artifacts/` ledger;
+commits on top of the base branch once that ref resolves (see below).
+
+## Base ref
+If `origin/feat/ask-user-dialog-parity` does not resolve in the worktree, run `git fetch origin feat/ask-user-dialog-parity`
+and retry. If it still does not resolve, bind the DoD to `git merge-base HEAD <the base commit sha>` and say in the
+report which commit you used, rather than inventing a range or leaving the line untested.
 
 ## Non-goals
 No extension of the OSC 7501 wire format. No new dependency. No changes to program-status semantics. No touching `~/.config` or `~/.agents`. No push, no PR, no merge.
