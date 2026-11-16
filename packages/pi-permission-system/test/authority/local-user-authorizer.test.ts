@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AskDialogQueue } from "#src/authority/ask-dialog-queue";
 import { captureAuthorizerContext } from "#src/authority/authorizer-context";
 import { LocalUserAuthorizer } from "#src/authority/local-user-authorizer";
-import type { PermissionPromptDecision } from "#src/authority/permission-dialog";
+import {
+  type PermissionPromptDecision,
+  promptOptions,
+  requestPermissionDecisionFromUi,
+} from "#src/authority/permission-dialog";
 import { requestPermissionDecision } from "#src/authority/permission-prompt-component";
 import type { PromptPermissionDetails } from "#src/authority/permission-prompter";
 import {
@@ -503,11 +507,14 @@ describe("LocalUserAuthorizer", () => {
       );
     }
 
-    it("offers the direction label when every grant proves one direction", async () => {
+    it("offers the width option when every grant proves one direction", async () => {
       await expectOptionsFor(
         [{ surface: "external_directory_write", pattern: "/tmp/*" }],
         {
           sessionLabel: 'Yes, allow writes to "/tmp/*" for this session',
+          sessionWidth: {
+            label: 'Yes, allow reads and writes to "/tmp/*" for this session',
+          },
         },
       );
     });
@@ -520,8 +527,52 @@ describe("LocalUserAuthorizer", () => {
         ],
         {
           sessionLabel: "Yes, allow reads to 2 paths for this session",
+          sessionWidth: {
+            label: "Yes, allow reads and writes to 2 paths for this session",
+          },
         },
       );
+    });
+
+    it("M2: the widened label reaches the rendered option list and choosing it grants family width", async () => {
+      const { deps, decisionFn } = makeDeps();
+      await new LocalUserAuthorizer(deps).authorize(
+        makeDetails({
+          toolName: "bash",
+          sessionApproval: {
+            grants: [{ surface: "external_directory_read", pattern: "/tmp/*" }],
+          },
+        }),
+      );
+      const options = vi.mocked(decisionFn).mock.calls[0]?.[3];
+
+      // The one roster source every surface renders: the inline dialog's
+      // numbered rows and the select fallback's option list both come from
+      // promptOptions, so this is the option list a user is actually offered.
+      const rendered = promptOptions(options).map((row) => row.label);
+      expect(rendered).toEqual([
+        "allow",
+        'Yes, allow reads and writes to "/tmp/*" for this session',
+        "deny",
+      ]);
+
+      // Choosing the widened row records the both-directions width, so a
+      // write after a read grant is not re-asked (#813).
+      const selected = rendered[1] ?? "";
+      const decision = await requestPermissionDecisionFromUi(
+        {
+          select: (_title, opts) =>
+            Promise.resolve(opts.find((opt) => opt === selected) ?? opts[0]),
+        },
+        "Permission Required",
+        "",
+        options,
+      );
+      expect(decision).toEqual({
+        approved: true,
+        state: "approved_for_session",
+        sessionGrantWidth: "family",
+      });
     });
 
     it("offers no width option when the grants prove different directions", async () => {

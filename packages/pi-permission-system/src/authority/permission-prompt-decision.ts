@@ -72,6 +72,13 @@ export interface PromptModelConfig {
   /** Override for the session row's label (the gate's suggested pattern). */
   sessionLabel?: string;
   /**
+   * Present iff this ask's session grant can be widened to both directions
+   * (#813): its label is the session row's text, and committing a session
+   * row records the `"family"` width. Absent leaves the least-privilege
+   * default.
+   */
+  sessionWidth?: { label: string };
+  /**
    * Present iff this ask was forwarded from a subagent: the session row
    * grants the requesting subagent's own session rather than the serving
    * session's.
@@ -166,7 +173,7 @@ function pressHotkey(
   key?: string,
 ): PromptOutcome {
   if (!config.doublePressToConfirm || state.armedAction === action) {
-    return commit(action);
+    return commit(config, action);
   }
   return render({
     ...state,
@@ -178,7 +185,22 @@ function pressHotkey(
   });
 }
 
-function commit(action: PromptOptionAction): PromptOutcome {
+/**
+ * The width this ask's session rows record: `"family"` iff the widened row
+ * was offered (#813) — the width is the ask's and applies to either scope,
+ * matching the pre-one-step choice — else absent, the least-privilege default
+ * that serializes exactly as a narrow grant always has.
+ */
+function sessionGrantWidthFor(
+  config: PromptModelConfig,
+): Pick<UnattributedDecision, "sessionGrantWidth"> {
+  return config.sessionWidth ? { sessionGrantWidth: "family" } : {};
+}
+
+function commit(
+  config: PromptModelConfig,
+  action: PromptOptionAction,
+): PromptOutcome {
   switch (action) {
     case "approve":
       return {
@@ -190,12 +212,20 @@ function commit(action: PromptOptionAction): PromptOutcome {
     case "approveSession":
       return {
         kind: "decision",
-        decision: { approved: true, state: "approved_for_session" },
+        decision: {
+          approved: true,
+          state: "approved_for_session",
+          ...sessionGrantWidthFor(config),
+        },
       };
     case "approveSessionBoth":
       return {
         kind: "decision",
-        decision: { approved: true, state: "approved_for_serving_session" },
+        decision: {
+          approved: true,
+          state: "approved_for_serving_session",
+          ...sessionGrantWidthFor(config),
+        },
       };
   }
 }

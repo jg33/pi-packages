@@ -83,15 +83,16 @@ export interface PromptOptionRow {
  * adopts as its buttons.
  *
  * The labels are the fixed one-step roster: `allow` / the session row /
- * `allow for all agents` when a scope choice applies / `deny`. Only the
- * gate-supplied `sessionLabel` refines the session row's text; `forwarded`
- * names whose session that row grants (the requesting subagent's, not the
- * serving session's).
+ * `allow for all agents` when a scope choice applies / `deny`. The session
+ * row's text is the widened both-directions label when this ask can widen
+ * (`sessionWidth`, #813), else the gate-supplied `sessionLabel`, else the
+ * generic verb; `forwarded` names whose session that row grants (the
+ * requesting subagent's, not the serving session's).
  */
 export function promptOptions(
   options?: Pick<
     RequestPermissionOptions,
-    "sessionLabel" | "forwarded" | "sessionScope"
+    "sessionLabel" | "sessionWidth" | "forwarded" | "sessionScope"
   >,
 ): readonly PromptOptionRow[] {
   const rows: PromptOptionRow[] = [
@@ -99,6 +100,7 @@ export function promptOptions(
     {
       action: "approveSession",
       label:
+        options?.sessionWidth?.label ??
         options?.sessionLabel ??
         (options?.forwarded ? "allow for this agent" : "allow for all agents"),
     },
@@ -161,6 +163,13 @@ export interface RequestPermissionOptions {
   /** Override the session option's label (e.g. to show the suggested pattern). */
   sessionLabel?: string;
   /**
+   * Present iff this ask's session grant can be widened to both directions
+   * (#813): its label is the session row's text instead of `sessionLabel` or
+   * the generic verb, and committing either session row records the
+   * `"family"` width. Absent leaves the prompt at its default width.
+   */
+  sessionWidth?: { label: string };
+  /**
    * Present iff this ask was forwarded from a subagent: without it the
    * session row grants the serving session's own, not the requester's.
    */
@@ -205,13 +214,25 @@ export async function requestPermissionDecisionFromUi(
 
   // A cancelled select (undefined, signal live) falls through to deny, the
   // same answer the old trailing fallthrough gave it.
+  // The widened row was this ask's session width (#813): both session rows
+  // grant it, and a narrow grant stays absent so it serializes as before.
+  const widened: Pick<UnattributedDecision, "sessionGrantWidth"> =
+    options?.sessionWidth ? { sessionGrantWidth: "family" } : {};
   switch (rows.find((row) => row.label === selected)?.action) {
     case "approve":
       return { approved: true, state: "approved" };
     case "approveSession":
-      return { approved: true, state: "approved_for_session" };
+      return {
+        approved: true,
+        state: "approved_for_session",
+        ...widened,
+      };
     case "approveSessionBoth":
-      return { approved: true, state: "approved_for_serving_session" };
+      return {
+        approved: true,
+        state: "approved_for_serving_session",
+        ...widened,
+      };
     default:
       return createDeniedPermissionDecision();
   }

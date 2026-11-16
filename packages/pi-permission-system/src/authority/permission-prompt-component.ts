@@ -213,6 +213,7 @@ export function presentInlinePermissionPrompt(
   const config: PromptModelConfig = {
     doublePressToConfirm: view.doublePressToConfirm,
     sessionLabel: options?.sessionLabel,
+    sessionWidth: options?.sessionWidth,
     forwarded: options?.forwarded,
     sessionScope: options?.sessionScope,
     keys: view.dialogKeys,

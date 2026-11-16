@@ -243,6 +243,49 @@ describe("reducePrompt", () => {
         decision: { approved: true, state: "approved_for_session" },
       });
     });
+
+    it("commits a family-width grant when the widened row was offered (#813)", () => {
+      const config = makeConfig({
+        doublePressToConfirm: false,
+        sessionWidth: {
+          label: "Yes, allow reads and writes for this session",
+        },
+      });
+      const outcome = reducePrompt(config, initialPromptState(config), {
+        type: "hotkey",
+        action: "approveSession",
+      });
+      expect(outcome).toEqual({
+        kind: "decision",
+        decision: {
+          approved: true,
+          state: "approved_for_session",
+          sessionGrantWidth: "family",
+        },
+      });
+    });
+
+    it("grants family width to the all-agents row too: width is the ask's, scope is orthogonal", () => {
+      const config = makeConfig({
+        doublePressToConfirm: false,
+        sessionScope: true,
+        sessionWidth: {
+          label: "Yes, allow reads and writes for this session",
+        },
+      });
+      const outcome = reducePrompt(config, initialPromptState(config), {
+        type: "hotkey",
+        action: "approveSessionBoth",
+      });
+      expect(outcome).toEqual({
+        kind: "decision",
+        decision: {
+          approved: true,
+          state: "approved_for_serving_session",
+          sessionGrantWidth: "family",
+        },
+      });
+    });
   });
 
   describe("the all-agents row (gate-gated)", () => {
@@ -253,6 +296,19 @@ describe("reducePrompt", () => {
         "approveSessionBoth",
         "deny",
       ]);
+    });
+
+    it("stays at the four-option roster when the widened row replaces the session label (#813)", () => {
+      expect(
+        visibleActions(
+          makeConfig({
+            sessionScope: true,
+            sessionWidth: {
+              label: "Yes, allow reads and writes for this session",
+            },
+          }),
+        ),
+      ).toEqual(["approve", "approveSession", "approveSessionBoth", "deny"]);
     });
 
     it("arms b like any other hotkey under double-press", () => {

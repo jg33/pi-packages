@@ -248,6 +248,7 @@ function buildRequestOptions(
 
   const options: RequestPermissionOptions = {
     ...(sessionLabel ? { sessionLabel } : {}),
+    ...(widths ? { sessionWidth: { label: widths.widenedLabel } } : {}),
     ...(details.forwarding ? { forwarded: true } : {}),
     ...(details.forwarding && grants.length > 0 ? { sessionScope: true } : {}),
   };
