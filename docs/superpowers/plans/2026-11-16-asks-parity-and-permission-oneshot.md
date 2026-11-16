@@ -1,5 +1,5 @@
 # hh-asks-parity — finish the ask/permission parity slice and make it one step
-<!-- hermes-handoff: ref=hh-asks-parity repo=jg33/pi-packages base=feat/ask-user-dialog-parity test=pnpm -C packages/pi-permission-system run test -->
+<!-- hermes-handoff: ref=hh-asks-parity repo=OWNER/pi-packages base=feat/ask-user-dialog-parity test=pnpm -C packages/pi-permission-system run test -->
 One task, one branch. This finishes an in-flight, unpushed slice and extends it. It is NOT a rewrite: most of the annotation seam already exists and is committed. Do not re-plan it.
 
 ## Context
@@ -48,6 +48,18 @@ No extension of the OSC 7501 wire format. No new dependency. No changes to progr
 
 ## Constraints
 No new dependency unless an item says so; no push, no PR, no merge (the supervisor owns egress). Conventional Commits, `-s` sign-off as Jesse Garrison <jesse@nightlight.io>. Do not edit `docs/superpowers/plans/2026-11-14-permission-annotation-seam.md`.
+
+## Environment note — permissions are OFF (read this before item 4)
+`pi-permission-system` is DISABLED globally on this machine for the duration of this run, so that the session can
+work unattended. Consequences you must account for:
+- No permission dialogs will fire. `edit`, `write` and `bash` will not stop for approval.
+- You therefore CANNOT observe the permission prompt you are changing. Any claim about the prompt's appearance,
+  its option list, or its scope choices must come from the vitest suites, not from a live dialog you did not see.
+- When an item genuinely needs the prompt on screen (item 4's one-step prompt with agent/all-agent scope), RE-ENABLE
+  `pi-permission-system` first, take the observation, then disable it again to continue. Say in your report that you
+did this and what you saw.
+- Never report a prompt behaviour you did not observe. If you could not re-enable it, record the item under SKIPPED
+  with that reason.
 
 ## Risks
 - The dirty tree is live code: a broken intermediate commit changes the user's running pi. Mitigation: item 2 lands only with its tests green.
