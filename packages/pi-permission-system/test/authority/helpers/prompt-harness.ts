@@ -146,6 +146,7 @@ export function mountPrompt(opts: MountOptions = {}) {
   }
   return {
     custom,
+    component,
     done,
     write,
     requestRender,

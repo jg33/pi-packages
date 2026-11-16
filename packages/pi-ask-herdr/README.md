@@ -5,7 +5,10 @@
 > Asks `blocked` message), `src/ui.ts` (passes the `blocked` option to
 > `ctx.ui.custom`, digit-key option picking), `src/tool.ts` (old terminal
 > program-status reporting removed; the Pi host now reports OSC 7501 from the
-> dialog's `blocked` option). Re-apply these changes after updating from upstream.
+> dialog's `blocked` option), plus `src/render-call.ts` (new — builds the
+> transcript lines for a finished ask_user call, one line per question with
+> its option labels) and `src/tool.ts` `renderCall` (patched to use it).
+> Re-apply these changes after updating from upstream.
 
 A Pi extension that adds an `ask_user` tool, with optional integration with
 [Herdr](https://herdr.dev) agent state.
@@ -20,6 +23,7 @@ src/
   herdr.ts    # Herdr event-bus integration
   program-status.ts # OSC 7501 terminal status (blocked while asking)
   options.ts  # Option normalization
+  render-call.ts # Transcript lines for a finished ask_user call (local patch)
   types.ts    # Shared TypeScript types
 ```
 

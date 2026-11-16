@@ -280,6 +280,55 @@ describe("terminal-row-aware ask cap", () => {
   });
 });
 
+// The dialog's own rows: the frame must never emit more rows than the terminal
+// has — the host paints a shrunken box from the top, so an over-tall frame
+// loses its bottom rows (the numbered options) first.
+describe("decision step row budget across terminal heights", () => {
+  const evidence = Array.from({ length: 40 }, (_, i) => ({
+    label: `path ${i}`,
+    text: `/very/long/path/${i}`,
+    detail: null,
+  }));
+  const HEIGHTS = [10, 12, 15, 16, 17, 18, 20, 24, 40] as const;
+
+  it("emits all numbered option rows at every height (the herdr button contract)", () => {
+    for (const rows of HEIGHTS) {
+      const m = mountPrompt({
+        view: NOW,
+        rows,
+        payload: { ...bashPayload(), evidence },
+      });
+      const numbers = m
+        .render(80)
+        .map(strip)
+        .flatMap((line) => {
+          const digit = HERDR_OPTION.exec(line)?.[2];
+          return digit === undefined ? [] : [Number(digit)];
+        });
+      expect(numbers, `rows=${rows}`).toEqual([1, 2, 3, 4]);
+    }
+  });
+
+  it("emits at most `rows` lines whenever the frame can fit the terminal", () => {
+    // 17 rows is the floor below which the dialog cannot fit on width 80
+    // (9 frame rows + 3 core ask rows + 4 options, +1 when the elided hint
+    // wraps); above it, fitting is the row budget's job — before the fix a
+    // long ask emitted 20 rows at rows=15..18.
+    for (const rows of [17, 18, 20, 24, 40]) {
+      const m = mountPrompt({
+        view: NOW,
+        rows,
+        payload: { ...bashPayload(), evidence },
+      });
+      const lines = m.render(80);
+      expect(
+        lines.length,
+        `rows=${rows}, emitted=${lines.length}`,
+      ).toBeLessThanOrEqual(rows);
+    }
+  });
+});
+
 // herdr's Asks panel scrapes the screen with exactly this pattern
 // (~/.config/herdr-app/mods/tabs-asks/engine.js:58) and adopts the run as the
 // APPROVAL card's clickable options. A row that stops matching is a missing button.

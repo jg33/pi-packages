@@ -9,6 +9,10 @@ import { Type } from "typebox";
 import { clearAskMetadata, isHerdrEnv, reportAskMetadata, setHerdrBlocked } from "./herdr.ts";
 import { askBlockedStatus } from "./herdr-status.ts";
 import { reportAskBlocked, restoreProgramStatus } from "./program-status.ts";
+// local patch: transcript rendering shows per-question option labels via
+// src/render-call.ts (upstream renderCall prints only the header) — re-apply
+// after package updates from upstream.
+import { askCallLines } from "./render-call.ts";
 import type { AskBatchDetails } from "./types.ts";
 import { askBatchInTui, renderAgentAnswer, renderBatchAnswer, renderSingleAnswer } from "./ui.ts";
 
@@ -152,14 +156,13 @@ export function registerAskuserTool(pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme, _context) {
+			// local patch: header unchanged, then one indented line per question
+			// with its option labels (see src/render-call.ts).
 			const questions = Array.isArray(args.questions) ? args.questions : [];
 			const count = questions.length;
-			let text = theme.fg("toolTitle", theme.bold(count > 1 ? `Ask User (${count} questions)` : "Ask User"));
-			if (count === 1) {
-				const question = typeof questions[0]?.question === "string" ? questions[0].question.trim() : "";
-				if (question) text += ` ${theme.fg("muted", question)}`;
-			}
-			return new Text(text, 0, 0);
+			const header = theme.fg("toolTitle", theme.bold(count > 1 ? `Ask User (${count} questions)` : "Ask User"));
+			// Text splits on \n (pi-tui wrapTextWithAnsi), so a joined multi-line string renders as lines.
+			return new Text([header, ...askCallLines(questions)].join("\n"), 0, 0);
 		},
 
 		renderResult(result, _options, theme, context) {

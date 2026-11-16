@@ -94,9 +94,12 @@ describe("permission prompt chrome", () => {
     );
   });
 
-  it("askRowCap leaves room for the frame and the option rows, never below the floor, never above the configured cap", () => {
+  it("askRowCap leaves room for the frame and the option rows, never below zero, never above the configured cap", () => {
     expect(askRowCap(24, 30, 4)).toBe(16); // 30 - 9 frame - 1 spacer - 4 options
     expect(askRowCap(24, 200, 4)).toBe(24);
-    expect(askRowCap(24, 10, 4)).toBe(6);
+    // The ask gives its whole allowance away before the options give anything:
+    // no floor may push the cap above `room` and overflow the frame.
+    expect(askRowCap(24, 15, 4)).toBe(1);
+    expect(askRowCap(24, 10, 4)).toBe(0);
   });
 });

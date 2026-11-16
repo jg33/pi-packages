@@ -102,6 +102,50 @@ Branch: `feat/ask-user-dialog-parity`. Nothing pushed.
 
 | worker-permission-ask-t5 | Worker | T5 end-to-end vs herdr Asks panel | running |
 
+## Upstream sync — DONE and verified
+
+```
+3a5081ab  merge: sync with upstream (gotgenes/pi-packages)
+d1eb77ac  wip(subagent-forwarding): park in-flight forwarding work before upstream sync
+d3ce0730  feat(permission-system): number the dialog's options so herdr's Asks panel gets buttons
+```
+
+- Landing commit `d3ce0730` = exactly **12 files** (the 11 + `composition-root.test.ts` with only its
+  three ordinal hunks).
+- Divergence vs `origin/main`: **10 ahead / 0 behind** — up to date.
+- Tree **0 dirty entries**; `backup/pre-upstream-sync-2026-11-12` retained; nothing pushed.
+- Merge was **conflict-free**: `comm -12` of the two change sets was empty, so upstream's 12 commits
+  never touched a file we touched.
+- Gates: `pnpm check` 0; `pnpm test` 0 (188 files / 6513 tests); rumdl 0 on the three markdown files.
+- `pnpm lint` = 1 — one pre-existing eslint `local-rules/no-parent-relative-imports` at
+  `test/subagent-forwarding-derivation.test.ts:20`, a defect in the parked forwarding work, left to
+  its owner.
+
+## Structural recommendation (for the ask-standardization question)
+
+Given herdr parses options **from the message** for `kind === "question"` (`engine.js:96-101`) and
+its screen-adopt branch is guarded by `!ask.options.length` (`:239`), the `answer:` grammar delivers
+buttons **with no scrape at all**.
+
+**Recommendation: adopt the `answer:` grammar as the standard.**
+- It removes the scrape dependency — the single biggest risk identified across review, and the
+  source of every bug in this session (phantom options, the false "herdr renders approve buttons"
+  comment, the ordinal/reserved-digit scaffolding).
+- Options travel in the message, so **any** program-status consumer gets them for free.
+- The producer is ours (`pi-ask-herdr`), so the contract can actually be documented — it currently
+  lives only as a code comment on one side and a regex on the other.
+- Cost: the card renders DECISION (accent, with an "Other answer" box) rather than blocked-coloured
+  APPROVAL.
+
+**To recover the APPROVAL styling without an RPC client**, propose the smallest possible upstream
+ask to herdr: allow a `kind: "question"` report to carry an approval hint (e.g. `approval: true` in
+the report) that selects the blocked colour. That is a one-line change in `engine.js`'s kind
+mapping, versus writing an entire RPC client.
+
+Rejected as premature: the `ctx.ui` / `extension_ui_request`-`response` RPC channel is the
+highest-fidelity option (typed answers, a real editor for the reasoned denial, styling as a field)
+but requires herdr to become an RPC client — a genuine herdr-side project, not a pi-side change.
+
 ## Upstream sync — first attempt stopped at Step 1 (correctly)
 
 The clean-worktree gate was RED: 2 tests in `test/composition-root.test.ts` failed, because that

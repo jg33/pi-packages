@@ -87,13 +87,18 @@ export function hintRow(
 
 /** Rows `frame` adds around its body, with one row of slack for a wrapped hint. */
 export const DECISION_FRAME_ROWS = 9;
-export const MIN_ASK_ROWS = 6;
 
 /**
  * Rows the ask body may use so the frame and what sits below it (option rows,
  * or the reason prompt/editor/error) still fit the terminal. A display bound
  * only: core facts are exempt from the row budget in the renderer, and the
  * complete view stays one keystroke away.
+ *
+ * The ask body gives its whole allowance away before the rows below it give
+ * anything: when `room` is tiny or negative the cap follows it down to zero
+ * (the renderer still shows the core facts). A frame taller than the terminal
+ * is painted from the top by the host, and what falls off is the bottom — the
+ * numbered options the decision and herdr's buttons depend on.
  */
 export function askRowCap(
   configuredMaxRows: number,
@@ -101,5 +106,5 @@ export function askRowCap(
   bodyRowsBelowAsk: number,
 ): number {
   const room = terminalRows - DECISION_FRAME_ROWS - 1 - bodyRowsBelowAsk; // 1 = spacer under the ask
-  return Math.max(MIN_ASK_ROWS, Math.min(configuredMaxRows, room));
+  return Math.max(0, Math.min(configuredMaxRows, room));
 }
