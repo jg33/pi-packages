@@ -115,14 +115,14 @@ This clamp is deny-preserving and, like `yoloMode`, applied at composition; when
 | `promptNotifications`       | `[]`     | Terminal notifications to emit when the inline TUI dialog opens: `"bell"`, `"osc9"`, `"osc777"` (see below). Empty for none.                                                                                                                 |
 | `forwardingTimeoutMs`       | `600000` | How long a subagent waits for the parent session to answer a forwarded permission request, in milliseconds. A child whose parent is not draining its inbox gives up in ~2 s regardless, whether that parent runs in this process or its own. |
 | `promptTimeoutMs`           | —        | How long a permission prompt, once shown, waits for an answer before it is dismissed and the request denied, in milliseconds. Unset (the default) means no timer. See [Unanswered prompts](#unanswered-prompts).                             |
-| `promptMaxRows`             | `24`     | Max rows a permission prompt renders before eliding its annotations, then its evidence. The request's own facts are never elided by this budget; `Ctrl+O` expands the prompt to the complete request.                                                     |
+| `promptMaxRows`             | `24`     | Max rows a permission prompt renders before eliding its annotations, then its evidence. The request's own facts are never elided by this budget; `Ctrl+O` expands the prompt to the complete request.                                        |
 | `promptFieldMaxWidth`       | `400`    | Max characters of any one field shown in a permission prompt. This is what bounds a single long field (a here-string command, say) that would otherwise fill the prompt through wrapping.                                                    |
 | `reviewLogFieldMaxWidth`    | `1000`   | Max characters of any one value written to the review log. A longer value is stored shortened, marked with an ellipsis. Raise it to keep longer values; this is a length bound, not redaction.                                               |
 | `toolInputPreviewMaxLength` | —        | **Deprecated and ignored.** Superseded by `promptMaxRows` / `promptFieldMaxWidth`. Still accepted so an existing config is not rejected, but the value no longer applies; setting it logs a warning.                                         |
 | `toolTextSummaryMaxLength`  | —        | **Deprecated and ignored.** Superseded by `promptMaxRows` / `promptFieldMaxWidth`. Still accepted so an existing config is not rejected, but the value no longer applies; setting it logs a warning.                                         |
 | `piInfrastructureReadPaths` | `[]`     | Extra directories to auto-allow for reads, bypassing the `external_directory` gate. Supports `~`/`$HOME`/`${HOME}` expansion and wildcard patterns (`*`, `?`).                                                                               |
 | `authorizerChain`           | `[]`     | Ordered names of registered live-authority chain links to consult before the terminal authorizer (see [Authorizer chain](#authorizer-chain--case-by-case-decision-links)).                                                                   |
-| `annotatorChain`            | `[]`     | Ordered names of registered prompt annotators whose advisory text a permission prompt shows, labelled model-generated (see [Prompt annotations](#prompt-annotations)).                                                                        |
+| `annotatorChain`            | `[]`     | Ordered names of registered prompt annotators whose advisory text a permission prompt shows, labelled model-generated (see [Prompt annotations](#prompt-annotations)).                                                                       |
 | `annotatorTimeoutMs`        | `1500`   | How long a prompt waits for its annotators before it is shown without the pending ones, in milliseconds (see [Prompt annotations](#prompt-annotations)).                                                                                     |
 
 Every array field (`promptNotifications`, `piInfrastructureReadPaths`, `authorizerChain`, `annotatorChain`, and a `commandEffects` entry's `effects` and `unlessOption` lists) accepts at most 1,000 entries.
@@ -135,13 +135,13 @@ No debug output is printed to the terminal.
 
 In an interactive **TUI** session, an `ask` decision opens an inline keybind dialog with one-key shortcuts: Every option is numbered in the order shown; press the number, or the bound key.
 
-| Key | Action                                                            |
-| --- | ----------------------------------------------------------------- |
-| `y` | Approve once                                                      |
-| `s` | Approve for this session, in the direction the gate proved        |
-| `b` | Approve for this session in **both** directions (see below)       |
-| `n` | Deny                                                              |
-| `r` | Deny with a reason (opens an inline editor; a reason is required) |
+| Key | Action                                                                          |
+| --- | ------------------------------------------------------------------------------- |
+| `y` | Approve once                                                                    |
+| `s` | Approve for this session, in the direction the gate proved                      |
+| `b` | Approve for this session in **both** directions (see below)                     |
+| `n` | Deny                                                                            |
+| `r` | Accepted for compatibility; the dialog has no reason row, so it selects nothing |
 
 `b` appears only for an ask whose paths all prove the same direction — a read or a write, but not both.
 Every other ask shows the four options above without it.
@@ -155,10 +155,8 @@ The footer names the pending deadline when promptTimeoutMs is set.
 With `doublePressToConfirm` enabled (the default), a key **arms** its action and shows a `Press 1 again to approve.` hint — echoing the key you pressed; an arm started by `enter` instead names the bound key — press the same key again, or `enter`, to commit.
 Set `doublePressToConfirm` to `false` to commit on the first press.
 
-**Known limitation — deny with a reason is not answerable from herdr.**
-The deny-with-a-reason row (`4.`, or `5.` when the ask offers the both-directions grant) opens a text editor, and a digit press plus `enter` cannot supply a typed reason.
-So herdr's Asks panel covers every decision except this one: it renders each numbered row as a button and answers by sending that digit, then `enter` — approve, approve for this session, deny, plus the both-directions grant when the ask offers it — with the two exceptions that a forwarded ask's session grant then opens a scope step (subagent-only or whole serving session) that a digit press cannot complete, and that the reasoned denial stays in the terminal: pressing the reason row from the panel opens the reason editor and goes no further.
-This is a known limitation of the external surface, not a bug.
+**Every row is answerable from a digit.**
+The dialog has no row that needs a typed answer, so herdr's Asks panel can answer any of them: it renders each numbered row as a button and answers by sending that digit, then `enter`.
 
 #### Remapping the hotkeys
 
@@ -170,8 +168,7 @@ Set `permissionDialogKeys` to bind any decision to a different key:
     "approve": "a",
     "approveSession": "f",
     "approveSessionBoth": "w",
-    "deny": "d",
-    "denyWithReason": "x"
+    "deny": "d"
   }
 }
 ```
@@ -205,11 +202,6 @@ Pi's tool-expansion binding (`app.tools.expand`, `Ctrl+O` by default) stays live
 It expands both the prompt itself — to the complete request, unbounded by `promptMaxRows` and `promptFieldMaxWidth` — and the host's pending tool call, so one keystroke shows you everything before you decide.
 It only toggles the display — it never resolves, commits, or arms the pending decision.
 Because it is offered ahead of the decision keys, a printable rebinding of it shadows a `permissionDialogKeys` entry that names the same character.
-While you are typing a denial reason it is not intercepted, so a rebound printable key still reaches the reason editor.
-
-The reason editor is Pi's own line editor, so it behaves like the chat input: pasting works, as do cursor movement, word and line deletion, the kill ring, and undo.
-The reason is a single line — a pasted line break becomes a space, and a long reason scrolls sideways rather than growing the dialog.
-`enter` submits it, and `esc` (or `Ctrl+C`) returns to the decision list without denying.
 
 #### Terminal notifications
 
@@ -271,8 +263,8 @@ The review log records the decision as `decidedBy: { "kind": "unanswered", "time
 
 The clock starts when a prompt is shown, not when the request is raised.
 A request waiting behind another open prompt gets its own full window once it is shown, so several unanswered requests take about one window each.
-In the inline TUI dialog, the hint row names the window while it runs, and pressing any key stops the clock: once you start answering (moving the highlight, typing a denial reason), the dialog waits for you to finish.
-The `select` fallback outside TUI mode has no keystroke to watch, so its window runs until you finish answering or it expires, and it spans the follow-up dialogs too: a window that expires while the grant-scope choice or the denial-reason input is open discards the half-made answer and denies the request as unanswered.
+In the inline TUI dialog, the hint row names the window while it runs, and pressing any key stops the clock: once you start answering (moving the highlight, or arming a decision), the dialog waits for you to finish.
+The `select` fallback outside TUI mode has no keystroke to watch, so its window runs until you finish answering or it expires.
 
 A request forwarded from a subagent is shown in the parent session, so the **parent's** `promptTimeoutMs` applies to it, and the subagent receives the same unanswered denial.
 The subagent separately stops waiting after `forwardingTimeoutMs`; keep `promptTimeoutMs` below it, or the subagent can give up while the parent's prompt is still open.

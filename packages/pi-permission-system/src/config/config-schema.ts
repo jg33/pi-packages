@@ -288,7 +288,9 @@ const dialogKeysSchema = z
       description: "Key that denies the pending call. Default: n.",
     }),
     denyWithReason: z.string().optional().meta({
-      description: "Key that denies and opens the reason editor. Default: r.",
+      deprecated: true,
+      description:
+        "Accepted for config compatibility, and binds nothing: the one-step TUI dialog has no deny-with-a-reason row, so this key selects no option. Default: r.",
     }),
   })
   .meta({
@@ -302,7 +304,6 @@ const dialogKeysSchema = z
         approveSession: "f",
         approveSessionBoth: "w",
         deny: "d",
-        denyWithReason: "x",
       },
     ],
   });
