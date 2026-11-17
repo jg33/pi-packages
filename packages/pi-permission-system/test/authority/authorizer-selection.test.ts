@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ParentAuthorizer } from "#src/authority/approval-escalator";
 import type { Authorizer } from "#src/authority/authorizer";
+import { authorizerContext } from "#src/authority/authorizer-context";
 import { AuthorizerRegistry } from "#src/authority/authorizer-registry";
 import {
   type AdjudicationRole,
@@ -210,13 +211,68 @@ describe("AuthorizerSelection", () => {
 
       await selection.escalate(makeDetailsOn("bash"));
 
-      // The link is handed the session logger as its third argument, so it can
-      // record a decision trail to the shared review log.
-      expect(link).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.anything(),
-        logger,
+      // The link is handed a pass-through log over the session logger: its
+      // decision trail still lands in the shared review log, and is
+      // remembered against this ask so an annotator can read it (item 5, D4).
+      const passed = link.mock.calls[0]?.[2];
+      expect(passed).toBeDefined();
+      passed?.review("link_trail", { note: "kept" });
+      passed?.debug("link_quiet", { note: "kept" });
+      expect(logger.review).toHaveBeenCalledWith("link_trail", {
+        note: "kept",
+      });
+      expect(logger.debug).toHaveBeenCalledWith("link_quiet", {
+        note: "kept",
+      });
+    });
+
+    it("captures a link's review trail as this ask's authorizer context", async () => {
+      const logger = makeAuthorizerLog();
+      const link = vi
+        .fn<Authorizer["authorize"]>()
+        .mockImplementation(async (_details, _query, log) => {
+          log.review("jev_authorizer_verdict", {
+            requestId: "req-1",
+            status: "deferred",
+            source: "uncertain",
+            rationale: "No condition was violated.",
+          });
+          return { kind: "defer" };
+        });
+      const registry = new AuthorizerRegistry();
+      registry.register("judge", link);
+      const selection = new AuthorizerSelection(
+        makeDeps({
+          prompter: makeInvokingPrompter(),
+          authorizerRegistry: registry,
+          getAuthorizerChain: () => ["judge"],
+          logger,
+        }),
       );
+      selection.activate(makeCtx({ hasUI: true }));
+      const details = makeDetailsOn("bash");
+
+      await selection.escalate(details);
+
+      // Still forwarded to the session review log…
+      expect(logger.review).toHaveBeenCalledWith("jev_authorizer_verdict", {
+        requestId: "req-1",
+        status: "deferred",
+        source: "uncertain",
+        rationale: "No condition was violated.",
+      });
+      // …and readable as this ask's context for the terminal to hand an annotator.
+      expect(authorizerContext(details)).toEqual([
+        {
+          event: "jev_authorizer_verdict",
+          details: {
+            requestId: "req-1",
+            status: "deferred",
+            source: "uncertain",
+            rationale: "No condition was violated.",
+          },
+        },
+      ]);
     });
 
     it("resolves links in config order (first non-defer wins)", async () => {

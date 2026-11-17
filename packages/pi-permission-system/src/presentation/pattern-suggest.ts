@@ -103,14 +103,6 @@ export function suggestMcpPattern(target: string): string {
   return "*";
 }
 
-/** Scope labels for the forwarded-approval two-step scope select. */
-export interface ForwardedScopeLabels {
-  /** Least-privilege default: record on the requesting subagent only. */
-  subagentLabel: string;
-  /** Record on the serving node — covers the parent and all subagents. */
-  servingSessionLabel: string;
-}
-
 /**
  * What an approval's grants cover, as one phrase.
  *
@@ -171,47 +163,6 @@ export function buildPathAccessSessionLabel(
     );
   return allPathFamily
     ? `Yes, allow access to ${describeGrantTarget(grants)} for this session`
-    : null;
-}
-
-/**
- * Build the two scope labels shown when a human grants a forwarded request
- * "for this session."
- *
- * The subagent option names the requester (least privilege); the whole-session
- * option restates what is being granted session-wide — every grant, not the
- * first of them (the residual #810 deferred here).
- *
- * The surface is named as the grants' shared **family**, never a directional
- * member: these labels are built before the dialog runs, so a direction here
- * could contradict a width the human chooses inside it. Grants that share no
- * family name no surface at all.
- */
-export function buildForwardedScopeLabels(
-  agentName: string | null,
-  grants: readonly ApprovalGrant[],
-): ForwardedScopeLabels {
-  const subagentLabel = agentName
-    ? `This subagent ('${agentName}') only`
-    : "This subagent only";
-  const family = sharedSurfaceFamilyOf(grants);
-  const granted = family
-    ? `${family} ${describeGrantTarget(grants)}`
-    : describeGrantTarget(grants);
-  return {
-    subagentLabel,
-    servingSessionLabel: `The whole session — allow ${granted} for parent and all subagents`,
-  };
-}
-
-/** The family every grant belongs to, or `null` when they disagree. */
-function sharedSurfaceFamilyOf(
-  grants: readonly ApprovalGrant[],
-): string | null {
-  if (grants.length === 0) return null;
-  const family = surfaceFamilyOf(grants[0].surface);
-  return grants.every((grant) => surfaceFamilyOf(grant.surface) === family)
-    ? family
     : null;
 }
 

@@ -238,7 +238,7 @@ export function makeForwarderContext(
 ): ForwarderContext {
   return {
     hasUI: overrides.hasUI ?? false,
-    ui: overrides.ui ?? { select: vi.fn(), input: vi.fn() },
+    ui: overrides.ui ?? { select: vi.fn() },
     cwd: overrides.cwd ?? "/repo",
     sessionManager: {
       getSessionId: vi.fn(() => overrides.sessionId ?? ""),

@@ -36,10 +36,11 @@ describe("decision step — ask_user visual language", () => {
 
   it("marks the highlighted option with ❯ + its ordinal in accent+bold and indents the rest", () => {
     const lines = mountPrompt({ view: NOW }).render(120);
-    expect(lines).toContain(fakeTheme.fg("accent", fakeTheme.bold("❯ 1. Yes")));
-    expect(lines).toContain("  2. Yes, for this session");
-    expect(lines).toContain("  3. No");
-    expect(lines).toContain("  4. No, provide reason");
+    expect(lines).toContain(
+      fakeTheme.fg("accent", fakeTheme.bold("❯ 1. allow")),
+    );
+    expect(lines).toContain("  2. allow for all agents");
+    expect(lines).toContain("  3. deny");
     expect(strip(lines.join("\n"))).not.toContain("▶");
     expect(strip(lines.join("\n"))).not.toContain("(y)");
   });
@@ -48,20 +49,20 @@ describe("decision step — ask_user visual language", () => {
     const m = mountPrompt({ view: NOW });
     m.type(KEY.down);
     expect(m.render(120)).toContain(
-      fakeTheme.fg("accent", fakeTheme.bold("❯ 2. Yes, for this session")),
+      fakeTheme.fg("accent", fakeTheme.bold("❯ 2. allow for all agents")),
     );
   });
 
-  it("numbers the both-directions row from the ask's own label", () => {
-    const label = 'Yes, reads and writes to "/tmp/*"';
-    expect(flat(mountPrompt({ view: NOW }).render(120))).not.toContain(label);
+  it("numbers the all-agents row from the option list", () => {
+    expect(flat(mountPrompt({ view: NOW }).render(120))).not.toContain(
+      "allow for this agent",
+    );
     const lines = mountPrompt({
       view: NOW,
-      options: { sessionWidth: { label } },
+      options: { forwarded: true, sessionScope: true },
     }).render(120);
-    expect(lines).toContain(`  3. ${label}`);
-    expect(lines).toContain("  4. No");
-    expect(lines).toContain("  5. No, provide reason");
+    expect(lines).toContain("  3. allow for all agents");
+    expect(lines).toContain("  4. deny");
   });
 
   it("numbers rows by position, ignoring the configured key column", () => {
@@ -73,10 +74,12 @@ describe("decision step — ask_user visual language", () => {
       denyWithReason: "f",
     };
     const lines = mountPrompt({ view: { ...NOW, dialogKeys } }).render(120);
-    expect(lines).toContain(fakeTheme.fg("accent", fakeTheme.bold("❯ 1. Yes")));
+    expect(lines).toContain(
+      fakeTheme.fg("accent", fakeTheme.bold("❯ 1. allow")),
+    );
     // Rows are numbered by position, not by the remapped character: on this
-    // narrow ask deny sits third, because the both-directions row is absent.
-    expect(lines).toContain("  3. No");
+    // narrow ask deny sits third, because the scope row is absent.
+    expect(lines).toContain("  3. deny");
   });
 
   it("hint: ask_user wording, dim, truthful about double-press", () => {
@@ -101,7 +104,7 @@ describe("decision step — ask_user visual language", () => {
     const m = mountPrompt({ view: { doublePressToConfirm: true } });
     m.type("y");
     expect(m.render(120).at(-1)).toBe(
-      ` ${fakeTheme.fg("warning", "Press y again to approve.")}`,
+      ` ${fakeTheme.fg("warning", "Press y again to allow.")}`,
     );
   });
 
@@ -153,9 +156,7 @@ describe("decision step — ask_user visual language", () => {
   it("every row fits the terminal at any width", () => {
     const m = mountPrompt({
       view: { promptTimeoutMs: 30_000 },
-      options: {
-        sessionWidth: { label: "Yes, both directions for /tmp/*" },
-      },
+      options: { forwarded: true, sessionScope: true },
     });
     for (const width of [12, 20, 40, 80, 200]) {
       for (const line of m.render(width))
@@ -168,59 +169,6 @@ describe("decision step — ask_user visual language", () => {
       overlay: false,
       blocked: { kind: "permission", message: "approve bash: rm -rf /tmp/x" },
     });
-  });
-});
-
-describe("reason step", () => {
-  it("is framed like the decision step, with a bold prompt and an error row", () => {
-    const m = mountPrompt({ view: NOW });
-    m.type("r");
-    const lines = m.render(120);
-    expect(lines[0]).toBe(border(120));
-    expect(lines[2]).toContain("Permission Required");
-    expect(lines).toContain(` ${fakeTheme.bold("Reason (required):")}`);
-    expect(lines.at(-1)).toBe(
-      ` ${fakeTheme.fg("dim", "Enter to submit · Esc to go back")}`,
-    );
-    m.type(KEY.enter);
-    expect(m.render(120)).toContain(
-      ` ${fakeTheme.fg("error", "A reason is required.")}`,
-    );
-  });
-});
-
-describe("scope step", () => {
-  const options = {
-    sessionScope: {
-      subagentLabel: "This subagent only",
-      servingSessionLabel: "The whole session",
-    },
-  };
-
-  it("lists the two scopes with ❯ and no key column (no hotkeys exist here)", () => {
-    const m = mountPrompt({ view: NOW, options });
-    m.type("s");
-    const lines = m.render(120);
-    expect(lines[0]).toBe(border(120));
-    expect(lines).toContain(
-      ` ${fakeTheme.bold("Apply this session grant to:")}`,
-    );
-    expect(lines).toContain(
-      fakeTheme.fg("accent", fakeTheme.bold("❯ This subagent only")),
-    );
-    expect(lines).toContain("  The whole session");
-    expect(strip(lines.join("\n"))).not.toMatch(/\b\d\. /);
-    expect(lines.at(-1)).toBe(
-      ` ${fakeTheme.fg("dim", "↑/↓ to navigate · Enter to select · Esc to go back")}`,
-    );
-  });
-
-  it("↓ moves the ❯ to the serving-session scope", () => {
-    const m = mountPrompt({ view: NOW, options });
-    m.type("s", KEY.down);
-    expect(m.render(120)).toContain(
-      fakeTheme.fg("accent", fakeTheme.bold("❯ The whole session")),
-    );
   });
 });
 
@@ -239,7 +187,7 @@ describe("terminal-row-aware ask cap", () => {
     const lines = m.render(100);
     expect(lines.length).toBeLessThanOrEqual(30);
     const text = flat(lines);
-    expect(text).toContain("3. No");
+    expect(text).toContain("3. deny");
     expect(text).toContain("Enter to select");
     expect(text).toContain("Ctrl+O for full request");
   });
@@ -305,7 +253,7 @@ describe("decision step row budget across terminal heights", () => {
           const digit = HERDR_OPTION.exec(line)?.[2];
           return digit === undefined ? [] : [Number(digit)];
         });
-      expect(numbers, `rows=${rows}`).toEqual([1, 2, 3, 4]);
+      expect(numbers, `rows=${rows}`).toEqual([1, 2, 3]);
     }
   });
 
@@ -335,14 +283,14 @@ describe("decision step row budget across terminal heights", () => {
 const HERDR_OPTION = /^\s*(❯\s*)?(\d{1,2})\.\s+(.*?)\s*$/;
 
 describe("herdr Asks-panel scrape contract", () => {
-  const wide = { sessionWidth: { label: "Yes, both directions for /tmp/*" } };
+  const wide = { forwarded: true, sessionScope: true };
 
   it("renders one scraper-matching row per visible action, numbered 1..n", () => {
     const cases = [
-      { m: mountPrompt({ view: NOW }), expected: [1, 2, 3, 4] },
+      { m: mountPrompt({ view: NOW }), expected: [1, 2, 3] },
       {
         m: mountPrompt({ view: NOW, options: wide }),
-        expected: [1, 2, 3, 4, 5],
+        expected: [1, 2, 3, 4],
       },
     ];
     for (const { m, expected } of cases) {

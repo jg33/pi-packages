@@ -2,7 +2,6 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { PayloadAnnotator } from "#src/presentation/annotation-runner";
 import {
   buildDirectionalSessionLabels,
-  buildForwardedScopeLabels,
   buildPathAccessSessionLabel,
   describeGrantTarget,
 } from "#src/presentation/pattern-suggest";
@@ -22,6 +21,7 @@ import { buildUiPrompt } from "#src/service/permission-ui-prompt";
 import { provenDirectionOf } from "#src/session/approval-grant";
 import type { AskDialogAdmission } from "./ask-dialog-queue";
 import type { TerminalAuthorizer } from "./authorizer";
+import { withAuthorizerContext } from "./authorizer-context";
 import type {
   PermissionPromptDecision,
   RequestPermissionOptions,
@@ -170,7 +170,12 @@ export class LocalUserAuthorizer implements TerminalAuthorizer {
         // `unknown`, because the interface's type is not a promise an
         // arbitrary implementation keeps: the value is checked, not assumed.
         const annotated: unknown = await Promise.race([
-          this.deps.annotator.annotate(details.payload, details.requestId),
+          // The chain's trail for this ask rides on the payload as
+          // annotate-time input; the gate's own facts keep their identity.
+          this.deps.annotator.annotate(
+            withAuthorizerContext(details.payload, details),
+            details.requestId,
+          ),
           ceiling,
         ]);
         // Validated, not just race-checked: the renderers traverse `request`,
@@ -215,17 +220,16 @@ function releasedDecision(reason: string): PermissionPromptDecision {
 }
 
 /**
- * The dialog options this ask offers, composed from three independent groups.
+ * The dialog options this ask offers, composed from two independent groups.
  *
  * The label names what the session grant covers: the proven direction and
  * target for a directional path ask, else a gate-supplied label, else the
- * target alone for a path ask that proves no direction. An ask whose grants
- * all prove the same direction additionally offers the both-directions width
- * (#813). A forwarded ask additionally offers the scope choice (subagent vs
- * whole session).
+ * target alone for a path ask that proves no direction. A forwarded ask is
+ * marked as such, and one whose gate suggested session grants additionally
+ * gets the whole-serving-session row.
  *
- * They compose rather than exclude: a forwarded path ask offers all three, and
- * an ask that qualifies for none passes `undefined` so the dialog keeps its
+ * They compose rather than exclude: a forwarded path ask gets both marks, and
+ * an ask that qualifies for neither passes `undefined` so the dialog keeps its
  * defaults.
  */
 function buildRequestOptions(
@@ -245,14 +249,8 @@ function buildRequestOptions(
   const options: RequestPermissionOptions = {
     ...(sessionLabel ? { sessionLabel } : {}),
     ...(widths ? { sessionWidth: { label: widths.widenedLabel } } : {}),
-    ...(details.forwarding && grants.length > 0
-      ? {
-          sessionScope: buildForwardedScopeLabels(
-            details.forwarding.requesterAgentName,
-            grants,
-          ),
-        }
-      : {}),
+    ...(details.forwarding ? { forwarded: true } : {}),
+    ...(details.forwarding && grants.length > 0 ? { sessionScope: true } : {}),
   };
   return Object.keys(options).length > 0 ? options : undefined;
 }

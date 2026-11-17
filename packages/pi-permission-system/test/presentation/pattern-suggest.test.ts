@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDirectionalSessionLabels,
-  buildForwardedScopeLabels,
   describeGrantTarget,
   suggestBashPattern,
   suggestMcpPattern,
@@ -333,64 +332,5 @@ describe("buildDirectionalSessionLabels", () => {
       sessionLabel: "Yes, allow reads to 3 paths for this session",
       widenedLabel: "Yes, allow reads and writes to 3 paths for this session",
     });
-  });
-});
-
-describe("buildForwardedScopeLabels", () => {
-  it("names the requesting subagent on the least-privilege option", () => {
-    expect(
-      buildForwardedScopeLabels("Explore", [
-        { surface: "bash", pattern: "git *" },
-      ]).subagentLabel,
-    ).toBe("This subagent ('Explore') only");
-  });
-
-  it("falls back to an anonymous subagent label", () => {
-    expect(
-      buildForwardedScopeLabels(null, [{ surface: "bash", pattern: "git *" }])
-        .subagentLabel,
-    ).toBe("This subagent only");
-  });
-
-  it("names the surface and the pattern for a single grant", () => {
-    expect(
-      buildForwardedScopeLabels("Explore", [
-        { surface: "bash", pattern: "git *" },
-      ]).servingSessionLabel,
-    ).toBe(
-      'The whole session — allow bash "git *" for parent and all subagents',
-    );
-  });
-
-  it("names every path rather than the first when a grant covers several", () => {
-    expect(
-      buildForwardedScopeLabels("Explore", [
-        { surface: "external_directory_read", pattern: "/outside/a/*" },
-        { surface: "external_directory_read", pattern: "/outside/b/*" },
-      ]).servingSessionLabel,
-    ).toBe(
-      "The whole session — allow external_directory 2 paths for parent and all subagents",
-    );
-  });
-
-  it("names the shared family rather than a directional member", () => {
-    // The scope labels are built before the dialog runs, so a direction here
-    // could contradict a width the human chooses inside it (#813).
-    expect(
-      buildForwardedScopeLabels("Explore", [
-        { surface: "external_directory_write", pattern: "/tmp/*" },
-      ]).servingSessionLabel,
-    ).toBe(
-      'The whole session — allow external_directory "/tmp/*" for parent and all subagents',
-    );
-  });
-
-  it("omits the surface when the grants do not share a family", () => {
-    expect(
-      buildForwardedScopeLabels("Explore", [
-        { surface: "external_directory_read", pattern: "/outside/a/*" },
-        { surface: "path_write", pattern: "/outside/b/*" },
-      ]).servingSessionLabel,
-    ).toBe("The whole session — allow 2 paths for parent and all subagents");
   });
 });

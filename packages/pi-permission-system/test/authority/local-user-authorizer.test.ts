@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AskDialogQueue } from "#src/authority/ask-dialog-queue";
+import { captureAuthorizerContext } from "#src/authority/authorizer-context";
 import { LocalUserAuthorizer } from "#src/authority/local-user-authorizer";
-import type { PermissionPromptDecision } from "#src/authority/permission-dialog";
+import {
+  type PermissionPromptDecision,
+  promptOptions,
+  requestPermissionDecisionFromUi,
+} from "#src/authority/permission-dialog";
 import { requestPermissionDecision } from "#src/authority/permission-prompt-component";
 import type { PromptPermissionDetails } from "#src/authority/permission-prompter";
 import {
@@ -398,7 +403,7 @@ describe("LocalUserAuthorizer", () => {
         },
         "Permission Required (Subagent)",
         details.payload,
-        undefined,
+        { forwarded: true },
       );
     });
 
@@ -423,16 +428,13 @@ describe("LocalUserAuthorizer", () => {
         "Permission Required (Subagent)",
         expect.anything(),
         {
-          sessionScope: {
-            subagentLabel: "This subagent ('Explore') only",
-            servingSessionLabel:
-              'The whole session — allow bash "git *" for parent and all subagents',
-          },
+          forwarded: true,
+          sessionScope: true,
         },
       );
     });
 
-    it("names every path in the scope label when the ask covers several", async () => {
+    it("names every path in the session label when the ask covers several", async () => {
       const { deps, decisionFn } = makeDeps();
       const authorizer = new LocalUserAuthorizer(deps);
 
@@ -458,10 +460,9 @@ describe("LocalUserAuthorizer", () => {
         expect.any(String),
         expect.anything(),
         expect.objectContaining({
-          sessionScope: expect.objectContaining({
-            servingSessionLabel:
-              "The whole session — allow external_directory 2 paths for parent and all subagents",
-          }),
+          forwarded: true,
+          sessionScope: true,
+          sessionLabel: expect.stringContaining("2 paths"),
         }),
       );
     });
@@ -483,7 +484,7 @@ describe("LocalUserAuthorizer", () => {
         expect.anything(),
         expect.any(String),
         expect.anything(),
-        undefined,
+        { forwarded: true },
       );
     });
   });
@@ -531,6 +532,47 @@ describe("LocalUserAuthorizer", () => {
           },
         },
       );
+    });
+
+    it("M2: the widened label reaches the rendered option list and choosing it grants family width", async () => {
+      const { deps, decisionFn } = makeDeps();
+      await new LocalUserAuthorizer(deps).authorize(
+        makeDetails({
+          toolName: "bash",
+          sessionApproval: {
+            grants: [{ surface: "external_directory_read", pattern: "/tmp/*" }],
+          },
+        }),
+      );
+      const options = vi.mocked(decisionFn).mock.calls[0]?.[3];
+
+      // The one roster source every surface renders: the inline dialog's
+      // numbered rows and the select fallback's option list both come from
+      // promptOptions, so this is the option list a user is actually offered.
+      const rendered = promptOptions(options).map((row) => row.label);
+      expect(rendered).toEqual([
+        "allow",
+        'Yes, allow reads and writes to "/tmp/*" for this session',
+        "deny",
+      ]);
+
+      // Choosing the widened row records the both-directions width, so a
+      // write after a read grant is not re-asked (#813).
+      const selected = rendered[1] ?? "";
+      const decision = await requestPermissionDecisionFromUi(
+        {
+          select: (_title, opts) =>
+            Promise.resolve(opts.find((opt) => opt === selected) ?? opts[0]),
+        },
+        "Permission Required",
+        "",
+        options,
+      );
+      expect(decision).toEqual({
+        approved: true,
+        state: "approved_for_session",
+        sessionGrantWidth: "family",
+      });
     });
 
     it("offers no width option when the grants prove different directions", async () => {
@@ -739,6 +781,49 @@ describe("LocalUserAuthorizer — annotations", () => {
     await new LocalUserAuthorizer(deps).authorize(details);
 
     expect(vi.mocked(decisionFn).mock.calls[0]?.[2]).toBe(details.payload);
+  });
+
+  it("passes the ask's captured authorizer context to the annotator, not the broadcast", async () => {
+    const seen: Array<PromptPayload | undefined> = [];
+    const { deps, events } = makeDeps({
+      annotator: {
+        annotate: (payload) => {
+          seen.push(payload);
+          return Promise.resolve(payload);
+        },
+      },
+    });
+    const details = makeDetails();
+    // Stands in for what `escalate`'s pass-through log captured while the
+    // chain judged this ask (plan item 5, D4).
+    const log = captureAuthorizerContext(details, {
+      review: vi.fn(),
+      debug: vi.fn(),
+    });
+    log.review("jev_authorizer_verdict", {
+      requestId: details.requestId,
+      status: "deferred",
+      source: "uncertain",
+      rationale: "No condition was violated.",
+    });
+
+    await new LocalUserAuthorizer(deps).authorize(details);
+
+    expect(seen[0]?.authorizerContext).toEqual([
+      {
+        event: "jev_authorizer_verdict",
+        details: {
+          requestId: "req-123",
+          status: "deferred",
+          source: "uncertain",
+          rationale: "No condition was violated.",
+        },
+      },
+    ]);
+    // The broadcast stays built from the original details (ADR 0011 §6).
+    expect(JSON.stringify(events.emit.mock.calls)).not.toContain(
+      "jev_authorizer_verdict",
+    );
   });
 
   it("shows the annotated payload but broadcasts the unannotated one", async () => {

@@ -8,6 +8,7 @@ import {
 } from "./authorizer";
 import { composeAuthorizerChain } from "./authorizer-chain";
 import type { UnregisteredLinkAuditor } from "./authorizer-chain-audit";
+import { captureAuthorizerContext } from "./authorizer-context";
 import type { AuthorizerLookup } from "./authorizer-registry";
 import { encloseInDelegationEnvelope } from "./delegation-envelope";
 import type { PermissionPromptDecision } from "./permission-dialog";
@@ -258,11 +259,20 @@ export class AuthorizerSelection
         new Error("escalate called before the session was activated"),
       );
     }
+    const links = this.linksFor(authority, details.requestId);
+    // Pass-through log: the links' review trail still lands in the session
+    // log, and is captured per ask so the terminal can hand it to an
+    // annotator (plan item 5, D4). No links means no capture — the composed
+    // chain is the terminal and nothing is judged here.
+    const log =
+      links.length > 0
+        ? captureAuthorizerContext(details, this.deps.logger)
+        : this.deps.logger;
     const chain = composeAuthorizerChain(
-      this.linksFor(authority, details.requestId),
+      links,
       authority.terminal,
       this.deps.getPermissionQuery(),
-      this.deps.logger,
+      log,
     );
     return this.deps.prompter.prompt(chain, details);
   }

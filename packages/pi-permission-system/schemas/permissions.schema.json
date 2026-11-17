@@ -51,7 +51,8 @@
           "type": "string"
         },
         "denyWithReason": {
-          "description": "Key that denies and opens the reason editor. Default: r.",
+          "deprecated": true,
+          "description": "Accepted for config compatibility, and binds nothing: the one-step TUI dialog has no deny-with-a-reason row, so this key selects no option. Default: r.",
           "type": "string"
         }
       },
@@ -63,8 +64,7 @@
           "approve": "a",
           "approveSession": "f",
           "approveSessionBoth": "w",
-          "deny": "d",
-          "denyWithReason": "x"
+          "deny": "d"
         }
       ]
     },
