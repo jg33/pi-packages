@@ -29,6 +29,19 @@ function assertRender(
   }
 }
 
+/** The hint a single hotkey press arms, for a config that double-presses. */
+function armedHint(
+  config: PromptModelConfig,
+  action: "approve" | "approveSession" | "approveSessionBoth" | "deny",
+): string {
+  const outcome = reducePrompt(config, initialPromptState(config), {
+    type: "hotkey",
+    action,
+  });
+  assertRender(outcome);
+  return outcome.state.hint;
+}
+
 function makeConfig(
   overrides: Partial<PromptModelConfig> = {},
 ): PromptModelConfig {
@@ -55,6 +68,17 @@ describe("reducePrompt", () => {
   });
 
   describe("double-press to confirm (enabled)", () => {
+    it("confirms the session row in the scope the ask grants, not a fixed verb", () => {
+      // The session row's scope is the ask's: arming it must name the grant it
+      // commits, so a forwarded ask and a serving-session ask read differently.
+      expect(armedHint(makeConfig(), "approveSession")).toBe(
+        "Press s again to allow for all agents.",
+      );
+      expect(armedHint(makeConfig({ forwarded: true }), "approveSession")).toBe(
+        "Press s again to allow for this agent.",
+      );
+    });
+
     it("arms the option on the first hotkey press without deciding", () => {
       const config = makeConfig();
       const outcome = reducePrompt(config, initialPromptState(config), {

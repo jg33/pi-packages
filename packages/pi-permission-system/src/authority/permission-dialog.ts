@@ -74,6 +74,13 @@ export type PromptOptionAction = Exclude<PromptAction, "denyWithReason">;
 export interface PromptOptionRow {
   readonly action: PromptOptionAction;
   readonly label: string;
+  /**
+   * The scope phrase the confirming hint completes "Press <key> again to …"
+   * with. A row's label may be a whole sentence supplied by its gate, so the
+   * hint cannot reuse it; the scope a row grants is the ask's, so both are
+   * decided here rather than in two tables that can disagree.
+   */
+  readonly verb: string;
 }
 
 /**
@@ -95,20 +102,29 @@ export function promptOptions(
     "sessionLabel" | "sessionWidth" | "forwarded" | "sessionScope"
   >,
 ): readonly PromptOptionRow[] {
+  // Whose session the session rows grant: a forwarded ask's grants the
+  // requesting subagent's own, any other ask's grants the serving session's,
+  // which every agent in it shares.
+  const sessionScope = options?.forwarded
+    ? "allow for this agent"
+    : "allow for all agents";
   const rows: PromptOptionRow[] = [
-    { action: "approve", label: "allow" },
+    { action: "approve", label: "allow", verb: "allow" },
     {
       action: "approveSession",
       label:
-        options?.sessionWidth?.label ??
-        options?.sessionLabel ??
-        (options?.forwarded ? "allow for this agent" : "allow for all agents"),
+        options?.sessionWidth?.label ?? options?.sessionLabel ?? sessionScope,
+      verb: sessionScope,
     },
   ];
   if (options?.sessionScope) {
-    rows.push({ action: "approveSessionBoth", label: "allow for all agents" });
+    rows.push({
+      action: "approveSessionBoth",
+      label: "allow for all agents",
+      verb: "allow for all agents",
+    });
   }
-  rows.push({ action: "deny", label: "deny" });
+  rows.push({ action: "deny", label: "deny", verb: "deny" });
   return rows;
 }
 

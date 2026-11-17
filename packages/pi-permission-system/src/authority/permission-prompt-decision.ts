@@ -51,12 +51,23 @@ export function actionOrdinal(
   );
 }
 
-const OPTION_VERBS: Record<PromptOptionAction, string> = {
-  approve: "allow",
-  approveSession: "allow for this agent",
-  approveSessionBoth: "allow for all agents",
-  deny: "deny",
-};
+/**
+ * The phrase the armed hint confirms with: "Press 2 again to allow for all
+ * agents."
+ *
+ * Read from the roster, not from a table of its own — the scope a session row
+ * grants is the ask's, so a verb fixed per action would confirm a grant the
+ * operator is not making.
+ */
+function confirmVerb(
+  config: PromptModelConfig,
+  action: PromptOptionAction,
+): string {
+  const row = promptOptions(config).find((entry) => entry.action === action);
+  // An armed action always comes from the roster; "confirm" keeps the hint
+  // printable if a roster entry ever sets one without a verb.
+  return row?.verb ?? "confirm";
+}
 
 /** Static configuration for a single prompt presentation. */
 export interface PromptModelConfig {
@@ -181,7 +192,7 @@ function pressHotkey(
     armedAction: action,
     // Name the key the operator pressed: rows are numbered, so a digit press
     // must not be answered with "Press y again".
-    hint: `Press ${key ?? config.keys[action]} again to ${OPTION_VERBS[action]}.`,
+    hint: `Press ${key ?? config.keys[action]} again to ${confirmVerb(config, action)}.`,
   });
 }
 
