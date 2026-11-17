@@ -718,6 +718,27 @@ describe("mergeUnifiedConfigs", () => {
     expect(merged.authorizerChain).toEqual(["kept-judge"]);
   });
 
+  it("override annotatorChain replaces base array", () => {
+    const merged = mergeUnifiedConfigs(
+      { annotatorChain: ["base-note"] },
+      { annotatorChain: ["override-note"] },
+    );
+    expect(merged.annotatorChain).toEqual(["override-note"]);
+  });
+
+  it("base annotatorChain survives when override omits it", () => {
+    const merged = mergeUnifiedConfigs({ annotatorChain: ["kept-note"] }, {});
+    expect(merged.annotatorChain).toEqual(["kept-note"]);
+  });
+
+  it("override annotatorTimeoutMs replaces base", () => {
+    const merged = mergeUnifiedConfigs(
+      { annotatorTimeoutMs: 500 },
+      { annotatorTimeoutMs: 900 },
+    );
+    expect(merged.annotatorTimeoutMs).toBe(900);
+  });
+
   it("override promptNotifications replaces the base list whole", () => {
     const merged = mergeUnifiedConfigs(
       { promptNotifications: ["osc777"] },
@@ -1169,7 +1190,7 @@ describe("detectUnusableDialogKeys", () => {
   it("returns undefined when every configured binding is usable", () => {
     expect(
       detectUnusableDialogKeys({
-        permissionDialogKeys: { approve: "1", deny: "4" },
+        permissionDialogKeys: { approve: "a", deny: "e" },
       }),
     ).toBeUndefined();
   });

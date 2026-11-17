@@ -16,6 +16,28 @@ export interface PromptPayload {
   readonly evidence: readonly PromptEvidence[];
   /** Supplied by registered annotators; always marked as model-generated. */
   readonly annotations: readonly PromptAnnotation[];
+  /**
+   * The authorizer chain's review trail for this ask, attached by the
+   * terminal at annotate time so an annotator can explain what the chain
+   * already decided (pi-jev-auto-mode's verdict above all — plan item 5, D4).
+   *
+   * Annotate-time input, never a gate-built fact: `asPromptPayload` does not
+   * decode it, the broadcast is built from the original details, and no
+   * renderer reads it. Absent on every payload a gate emits.
+   */
+  readonly authorizerContext?: readonly AuthorizerReviewEntry[];
+}
+
+/**
+ * One review-log entry the authorizer chain wrote while judging this ask,
+ * captured from the links' injected review seam (ADR 0007 §3).
+ *
+ * Shape kept as the seam hands it — event name plus whatever details the link
+ * passed — so capturing nothing but the passthrough costs no projection.
+ */
+export interface AuthorizerReviewEntry {
+  readonly event: string;
+  readonly details?: Record<string, unknown>;
 }
 
 /**
@@ -134,17 +156,30 @@ export interface PromptEvidence {
   readonly detail: string | null;
 }
 
+/** The marking every annotation carries. A literal, so no other value is representable. */
+export const MODEL_GENERATED = "model-generated" as const;
+
 /**
  * A model-generated advisory (ADR 0011 §8).
  *
- * The slot owns the attribution and the model-generated marking, so marking is
- * a property of the payload rather than a discipline each annotator must
- * remember. Structurally separate from any verdict: an annotation cannot allow,
- * deny, defer, or suppress.
+ * The slot owns the attribution and the marking, so both are properties of the
+ * payload rather than a discipline each annotator must remember: `source` is the
+ * registered annotator's name, stamped by this package, and `marking` is a
+ * literal only {@link modelGeneratedAnnotation} writes. Structurally separate
+ * from any verdict: an annotation cannot allow, deny, defer, or suppress.
  */
 export interface PromptAnnotation {
   readonly source: string;
   readonly text: string;
+  readonly marking: typeof MODEL_GENERATED;
+}
+
+/** The only constructor of a {@link PromptAnnotation}. */
+export function modelGeneratedAnnotation(
+  source: string,
+  text: string,
+): PromptAnnotation {
+  return { source, text, marking: MODEL_GENERATED };
 }
 
 /** The `requester` facts for an ask raised by this session. */
@@ -309,6 +344,41 @@ function asPromptEvidence(value: unknown): PromptEvidence | undefined {
   };
 }
 
+/**
+ * Narrow a value an annotator returned to a payload the renderers can read
+ * without throwing: same `request` and `evidence` objects as the gate built,
+ * and an annotations array whose members carry string `text`, string `source`
+ * and this package's `marking`.
+ *
+ * Reference identity is deliberate: `AnnotationRunner` authors only the slot
+ * (`{ ...own, annotations }`, where `own` is the gate's payload or a spread of
+ * it), so a well-behaved annotator returns the gate's own `request` and
+ * `evidence`. A copy that merely deep-equals them is not this node's payload,
+ * and the renderer reads both by traversal.
+ *
+ * All-or-nothing, like `asPromptPayload`: one junk member makes the whole result
+ * unusable. `kind` is not checked — the renderers do not throw without it.
+ */
+export function isRenderablePayload(
+  value: unknown,
+  gate: PromptPayload,
+): value is PromptPayload {
+  const candidate = asObject(value);
+  if (!candidate) return false;
+  if (candidate.request !== gate.request) return false;
+  if (candidate.evidence !== gate.evidence) return false;
+  if (!Array.isArray(candidate.annotations)) return false;
+  return candidate.annotations.every((member) => {
+    const annotation = asObject(member);
+    return (
+      annotation !== undefined &&
+      typeof annotation.text === "string" &&
+      typeof annotation.source === "string" &&
+      annotation.marking === MODEL_GENERATED
+    );
+  });
+}
+
 function asPromptAnnotation(value: unknown): PromptAnnotation | undefined {
   const candidate = asObject(value);
   if (
@@ -318,7 +388,9 @@ function asPromptAnnotation(value: unknown): PromptAnnotation | undefined {
   ) {
     return undefined;
   }
-  return { source: candidate.source, text: candidate.text };
+  // The marking is re-stamped, never read: a serialized annotation has no say in
+  // how it is labelled, and a payload from an older child carries none.
+  return modelGeneratedAnnotation(candidate.source, candidate.text);
 }
 
 function asObject(value: unknown): Record<string, unknown> | undefined {

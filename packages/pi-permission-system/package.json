@@ -85,7 +85,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "@earendil-works/pi-coding-agent": "1.0.0",
+    "@earendil-works/pi-coding-agent": "1.5.2",
     "@earendil-works/pi-tui": "1.0.0",
     "@types/node": "catalog:",
     "rollup": "catalog:",

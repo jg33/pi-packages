@@ -100,6 +100,7 @@ describe("ServingHeartbeatStore.markServing", () => {
       sessionId: "sess-1",
       pid: 4242,
       updatedAt: clock,
+      staleAfterMs: SERVING_HEARTBEAT_STALE_MS,
     });
   });
 

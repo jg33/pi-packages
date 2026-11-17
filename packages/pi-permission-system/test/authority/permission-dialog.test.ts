@@ -41,10 +41,9 @@ describe("isPermissionDecisionState", () => {
 });
 
 describe("requestPermissionDecisionFromUi", () => {
-  it("returns approved when user selects Yes", async () => {
+  it("returns approved when user selects allow", async () => {
     const ui: PermissionDecisionUi = {
-      select: vi.fn().mockResolvedValue("Yes"),
-      input: vi.fn(),
+      select: vi.fn().mockResolvedValue("allow"),
     };
     const result = await requestPermissionDecisionFromUi(
       ui,
@@ -54,10 +53,9 @@ describe("requestPermissionDecisionFromUi", () => {
     expect(result).toEqual({ approved: true, state: "approved" });
   });
 
-  it("returns approved_for_session when user selects session option", async () => {
+  it("returns approved_for_session when user selects the session option", async () => {
     const ui: PermissionDecisionUi = {
-      select: vi.fn().mockResolvedValue("Yes, for this session"),
-      input: vi.fn(),
+      select: vi.fn().mockResolvedValue("allow for all agents"),
     };
     const result = await requestPermissionDecisionFromUi(
       ui,
@@ -67,40 +65,9 @@ describe("requestPermissionDecisionFromUi", () => {
     expect(result).toEqual({ approved: true, state: "approved_for_session" });
   });
 
-  it("returns denied when user selects No", async () => {
+  it("returns denied when user selects deny", async () => {
     const ui: PermissionDecisionUi = {
-      select: vi.fn().mockResolvedValue("No"),
-      input: vi.fn(),
-    };
-    const result = await requestPermissionDecisionFromUi(
-      ui,
-      "Title",
-      "Message",
-    );
-    expect(result).toEqual({ approved: false, state: "denied" });
-  });
-
-  it("returns denied_with_reason when user provides reason", async () => {
-    const ui: PermissionDecisionUi = {
-      select: vi.fn().mockResolvedValue("No, provide reason"),
-      input: vi.fn().mockResolvedValue("not now"),
-    };
-    const result = await requestPermissionDecisionFromUi(
-      ui,
-      "Title",
-      "Message",
-    );
-    expect(result).toEqual({
-      approved: false,
-      state: "denied_with_reason",
-      denialReason: "not now",
-    });
-  });
-
-  it("returns denied when user selects deny-with-reason but gives empty input", async () => {
-    const ui: PermissionDecisionUi = {
-      select: vi.fn().mockResolvedValue("No, provide reason"),
-      input: vi.fn().mockResolvedValue(""),
+      select: vi.fn().mockResolvedValue("deny"),
     };
     const result = await requestPermissionDecisionFromUi(
       ui,
@@ -113,7 +80,6 @@ describe("requestPermissionDecisionFromUi", () => {
   it("returns denied when user dismisses dialog (undefined)", async () => {
     const ui: PermissionDecisionUi = {
       select: vi.fn().mockResolvedValue(undefined),
-      input: vi.fn(),
     };
     const result = await requestPermissionDecisionFromUi(
       ui,
@@ -123,27 +89,20 @@ describe("requestPermissionDecisionFromUi", () => {
     expect(result).toEqual({ approved: false, state: "denied" });
   });
 
-  it("passes four options to ui.select", async () => {
-    const selectFn = vi.fn().mockResolvedValue("Yes");
+  it("passes the one-step roster to ui.select", async () => {
+    const selectFn = vi.fn().mockResolvedValue("allow");
     const ui: PermissionDecisionUi = {
       select: selectFn,
-      input: vi.fn(),
     };
     await requestPermissionDecisionFromUi(ui, "Title", "Message");
     const options = selectFn.mock.calls[0][1] as string[];
-    expect(options).toEqual([
-      "Yes",
-      "Yes, for this session",
-      "No",
-      "No, provide reason",
-    ]);
+    expect(options).toEqual(["allow", "allow for all agents", "deny"]);
   });
 
   it("uses custom sessionLabel when provided", async () => {
-    const selectFn = vi.fn().mockResolvedValue("Yes");
+    const selectFn = vi.fn().mockResolvedValue("allow");
     const ui: PermissionDecisionUi = {
       select: selectFn,
-      input: vi.fn(),
     };
     await requestPermissionDecisionFromUi(ui, "Title", "Message", {
       sessionLabel: 'Yes, allow "git *" for this session',
@@ -156,7 +115,6 @@ describe("requestPermissionDecisionFromUi", () => {
     const customLabel = 'Yes, allow "git *" for this session';
     const ui: PermissionDecisionUi = {
       select: vi.fn().mockResolvedValue(customLabel),
-      input: vi.fn(),
     };
     const result = await requestPermissionDecisionFromUi(
       ui,
@@ -167,143 +125,54 @@ describe("requestPermissionDecisionFromUi", () => {
     expect(result).toEqual({ approved: true, state: "approved_for_session" });
   });
 
-  it("falls back to default session label when no options provided", async () => {
-    const selectFn = vi.fn().mockResolvedValue("Yes");
+  it("falls back to the default session row label when no options provided", async () => {
+    const selectFn = vi.fn().mockResolvedValue("allow");
     const ui: PermissionDecisionUi = {
       select: selectFn,
-      input: vi.fn(),
     };
     await requestPermissionDecisionFromUi(ui, "Title", "Message");
     const options = selectFn.mock.calls[0][1] as string[];
-    expect(options[1]).toBe("Yes, for this session");
+    expect(options[1]).toBe("allow for all agents");
   });
 
-  describe("both-directions session grant (#813)", () => {
-    const sessionWidth = {
-      label: 'Yes, allow reads and writes to "/tmp/*" for this session',
-    };
+  describe("the scope choice in the same select", () => {
+    const SCOPE = { forwarded: true, sessionScope: true } as const;
 
-    it("offers the width option after the session option", async () => {
-      const selectFn = vi.fn().mockResolvedValue("Yes");
-      const ui: PermissionDecisionUi = { select: selectFn, input: vi.fn() };
-      await requestPermissionDecisionFromUi(ui, "Title", "Message", {
-        sessionLabel: 'Yes, allow writes to "/tmp/*" for this session',
-        sessionWidth,
-      });
+    it("offers the all-agents row in the first select, not a second one", async () => {
+      const selectFn = vi.fn().mockResolvedValue("allow");
+      const ui: PermissionDecisionUi = { select: selectFn };
+      await requestPermissionDecisionFromUi(ui, "Title", "Message", SCOPE);
+      expect(selectFn).toHaveBeenCalledTimes(1);
       expect(selectFn.mock.calls[0][1]).toEqual([
-        "Yes",
-        'Yes, allow writes to "/tmp/*" for this session',
-        sessionWidth.label,
-        "No",
-        "No, provide reason",
+        "allow",
+        "allow for this agent",
+        "allow for all agents",
+        "deny",
       ]);
     });
 
-    it("returns the family width when the width option is chosen", async () => {
+    it("maps the agent-only session row to approved_for_session", async () => {
       const ui: PermissionDecisionUi = {
-        select: vi.fn().mockResolvedValue(sessionWidth.label),
-        input: vi.fn(),
-      };
-      expect(
-        await requestPermissionDecisionFromUi(ui, "Title", "Message", {
-          sessionWidth,
-        }),
-      ).toEqual({
-        approved: true,
-        state: "approved_for_session",
-        sessionGrantWidth: "family",
-      });
-    });
-
-    it("leaves the plain session option at the proven width", async () => {
-      const ui: PermissionDecisionUi = {
-        select: vi.fn().mockResolvedValue("Yes, for this session"),
-        input: vi.fn(),
-      };
-      expect(
-        await requestPermissionDecisionFromUi(ui, "Title", "Message", {
-          sessionWidth,
-        }),
-      ).toEqual({ approved: true, state: "approved_for_session" });
-    });
-
-    it("continues into the scope select from the width option", async () => {
-      const selectFn = vi
-        .fn()
-        .mockResolvedValueOnce(sessionWidth.label)
-        .mockResolvedValueOnce("The whole session");
-      const ui: PermissionDecisionUi = { select: selectFn, input: vi.fn() };
-      const result = await requestPermissionDecisionFromUi(
-        ui,
-        "Title",
-        "Message",
-        {
-          sessionWidth,
-          sessionScope: {
-            subagentLabel: "This subagent only",
-            servingSessionLabel: "The whole session",
-          },
-        },
-      );
-      expect(selectFn).toHaveBeenCalledTimes(2);
-      expect(result).toEqual({
-        approved: true,
-        state: "approved_for_serving_session",
-        sessionGrantWidth: "family",
-      });
-    });
-  });
-
-  describe("sessionScope two-step (forwarded asks)", () => {
-    const sessionScope = {
-      subagentLabel: "This subagent only",
-      servingSessionLabel: "The whole session",
-    };
-
-    it("opens a second scope select after the session option is chosen", async () => {
-      const selectFn = vi
-        .fn()
-        .mockResolvedValueOnce("Yes, for this session")
-        .mockResolvedValueOnce("This subagent only");
-      const ui: PermissionDecisionUi = { select: selectFn, input: vi.fn() };
-      await requestPermissionDecisionFromUi(ui, "Title", "Message", {
-        sessionScope,
-      });
-      expect(selectFn).toHaveBeenCalledTimes(2);
-      const scopeOptions = selectFn.mock.calls[1][1] as string[];
-      expect(scopeOptions).toEqual(["This subagent only", "The whole session"]);
-    });
-
-    it("maps the subagent scope to approved_for_session", async () => {
-      const ui: PermissionDecisionUi = {
-        select: vi
-          .fn()
-          .mockResolvedValueOnce("Yes, for this session")
-          .mockResolvedValueOnce("This subagent only"),
-        input: vi.fn(),
+        select: vi.fn().mockResolvedValue("allow for this agent"),
       };
       const result = await requestPermissionDecisionFromUi(
         ui,
         "Title",
         "Message",
-        { sessionScope },
+        SCOPE,
       );
       expect(result).toEqual({ approved: true, state: "approved_for_session" });
     });
 
-    it("maps the whole-session scope to approved_for_serving_session", async () => {
+    it("maps the all-agents row to approved_for_serving_session", async () => {
       const ui: PermissionDecisionUi = {
-        select: vi
-          .fn()
-          .mockResolvedValueOnce("Yes, for this session")
-          .mockResolvedValueOnce("The whole session"),
-        input: vi.fn(),
+        select: vi.fn().mockResolvedValue("allow for all agents"),
       };
       const result = await requestPermissionDecisionFromUi(
         ui,
         "Title",
         "Message",
-        { sessionScope },
+        SCOPE,
       );
       expect(result).toEqual({
         approved: true,
@@ -311,31 +180,14 @@ describe("requestPermissionDecisionFromUi", () => {
       });
     });
 
-    it("defaults to the least-privilege subagent scope when the scope select is cancelled", async () => {
-      const ui: PermissionDecisionUi = {
-        select: vi
-          .fn()
-          .mockResolvedValueOnce("Yes, for this session")
-          .mockResolvedValueOnce(undefined),
-        input: vi.fn(),
-      };
+    it("decides from the first select alone when the user picks plain allow", async () => {
+      const selectFn = vi.fn().mockResolvedValueOnce("allow");
+      const ui: PermissionDecisionUi = { select: selectFn };
       const result = await requestPermissionDecisionFromUi(
         ui,
         "Title",
         "Message",
-        { sessionScope },
-      );
-      expect(result).toEqual({ approved: true, state: "approved_for_session" });
-    });
-
-    it("does not open the scope select when the user picks plain Yes", async () => {
-      const selectFn = vi.fn().mockResolvedValueOnce("Yes");
-      const ui: PermissionDecisionUi = { select: selectFn, input: vi.fn() };
-      const result = await requestPermissionDecisionFromUi(
-        ui,
-        "Title",
-        "Message",
-        { sessionScope },
+        SCOPE,
       );
       expect(selectFn).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ approved: true, state: "approved" });
@@ -369,17 +221,13 @@ describe("requestPermissionDecisionFromUi", () => {
       });
     }
 
-    function scriptedUi(selects: Scripted[], inputs: Scripted[] = []) {
+    function scriptedUi(selects: Scripted[]) {
       const select = vi.fn(
         (_title: string, _options: string[], opts?: DialogOptions) =>
           respond(selects, opts),
       );
-      const input = vi.fn(
-        (_title: string, _placeholder?: string, opts?: DialogOptions) =>
-          respond(inputs, opts),
-      );
-      const ui: PermissionDecisionUi = { select, input };
-      return { ui, select, input };
+      const ui: PermissionDecisionUi = { select };
+      return { ui, select };
     }
 
     async function dismissWhilePending(
@@ -419,23 +267,6 @@ describe("requestPermissionDecisionFromUi", () => {
 
     it("answers nothing when the window dismisses the decision select", async () => {
       const { ui } = scriptedUi([AWAIT_DISMISSAL]);
-      expect(await dismissWhilePending(ui)).toBeUndefined();
-    });
-
-    it("answers nothing when the window dismisses the scope select", async () => {
-      const { ui } = scriptedUi(["Yes, for this session", AWAIT_DISMISSAL]);
-      expect(
-        await dismissWhilePending(ui, {
-          sessionScope: {
-            subagentLabel: "This subagent only",
-            servingSessionLabel: "The whole session",
-          },
-        }),
-      ).toBeUndefined();
-    });
-
-    it("answers nothing when the window dismisses the reason input", async () => {
-      const { ui } = scriptedUi(["No, provide reason"], [AWAIT_DISMISSAL]);
       expect(await dismissWhilePending(ui)).toBeUndefined();
     });
 

@@ -51,6 +51,8 @@ import {
 import { DEFAULT_EXTENSION_CONFIG } from "#src/config/extension-config";
 import { SESSION_ENDED_REASON } from "#src/handlers/lifecycle";
 import piPermissionSystemExtension from "#src/index";
+import { unregisteredAnnotatorMessage } from "#src/presentation/annotation-runner";
+import { AnnotatorRegistry } from "#src/presentation/annotator-registry";
 import { getPermissionsService } from "#src/service";
 import {
   PERMISSIONS_READY_CHANNEL,
@@ -190,12 +192,17 @@ function makeChildCtx(cwd: string, sessionId: string): unknown {
  * approves every prompt. The ask-prompt message (which embeds the tool-input
  * preview) is the first line of the select title.
  */
-function makeUiCtx(cwd: string, capturedTitles: string[]): { ctx: unknown } {
+function makeUiCtx(
+  cwd: string,
+  capturedTitles: string[],
+  notified: string[] = [],
+): { ctx: unknown } {
   const ctx = makeBaseCtx(cwd, "ui-session", {
     select: async (title: string): Promise<string | undefined> => {
       capturedTitles.push(title);
-      return "Yes";
+      return "allow";
     },
+    notify: (message: string) => notified.push(message),
   });
   return { ctx };
 }
@@ -1201,8 +1208,10 @@ describe("fact-shaping inheritance stops at live authority", () => {
     );
     getSubagentSessionRegistry().register(childSessionId, { parentSessionId });
 
-    // The child has UI and no serving parent, so it adjudicates locally and its
-    // own chain runs — the one shape in which a missing link changes the verdict.
+    // The child has UI but no serving parent, so it adjudicates locally — its
+    // own chain runs (the one shape in which a missing link changes the
+    // verdict), and with nowhere to forward the ask it is refused at once
+    // rather than prompted (#child-no-serving-parent).
     const capturedTitles: string[] = [];
     const notified: string[] = [];
     const childCtx = makeBaseCtx(childCwd, childSessionId, {
@@ -1226,17 +1235,18 @@ describe("fact-shaping inheritance stops at live authority", () => {
       "tool_call",
       { toolName: "demo", toolCallId: "link-1", input: {} },
       childCtx,
-    )) as { block?: true };
+    )) as { block?: true; reason?: string };
 
     // The parent's link never runs in the child: the ask reaches the child's
-    // own approving terminal, and the chain records the vacancy.
+    // own fail-fast terminal, and the chain records the vacancy.
     expect(authorize).not.toHaveBeenCalled();
-    expect(result.block).toBeUndefined();
-    expect(capturedTitles).toHaveLength(1);
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain("PI_SUBAGENT_PARENT_SESSION");
+    expect(capturedTitles).toHaveLength(0);
     expect(readReviewLog().map((entry) => entry.event)).toContain(
       "authorizer_chain_unregistered_link",
     );
-    // And the operator answering that prompt is told why no judge answered it:
+    // And the configured name's absence is told once per configured name:
     // the review log alone left the skip invisible (#861).
     expect(notified).toEqual([unregisteredLinkMessage("parent-only-judge")]);
 
@@ -1310,6 +1320,173 @@ describe("service and chain share one authorizer registry", () => {
     // the ask reached the approving UI terminal.
     expect(result.block).toBeUndefined();
     expect(capturedTitles).toHaveLength(1);
+
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+describe("service and annotator chain share one annotator registry", () => {
+  // The annotator registered through the published service must be consulted
+  // by the live ask when the operator names it in annotatorChain, proving the
+  // registerAnnotator surface and the runner reference the one registry the
+  // factory created.
+  it("shows a service-registered, config-named annotator's text, labelled model-generated", async () => {
+    writeGlobalConfig({
+      permission: { "*": "ask" },
+      annotatorChain: ["echo"],
+    });
+
+    const cwd = mkdtempSync(join(tmpdir(), "pi-perm-annot-cwd-"));
+    const pi = makeFakePi({ toolNames: ["demo"] });
+    piPermissionSystemExtension(pi as unknown as ExtensionAPI);
+
+    const capturedTitles: string[] = [];
+    const { ctx } = makeUiCtx(cwd, capturedTitles);
+    await fireSessionStart(pi, ctx);
+
+    getPermissionsService("ui-session")!.registerAnnotator(
+      "echo",
+      () => "routine demo call",
+    );
+
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-1", input: {} },
+      ctx,
+    );
+
+    expect(capturedTitles).toHaveLength(1);
+    expect(capturedTitles[0]).toContain(
+      "model-generated (echo) : routine demo call",
+    );
+
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("registers exactly one built-in annotator at composition", () => {
+    const register = vi.spyOn(AnnotatorRegistry.prototype, "register");
+    writeGlobalConfig({ permission: { "*": "ask" } });
+
+    try {
+      const pi = makeFakePi({ toolNames: ["demo"] });
+      piPermissionSystemExtension(pi as unknown as ExtensionAPI);
+
+      // One annotator exists in the whole package: the built-in, registered
+      // under the name the operator must put in annotatorChain to run it.
+      expect(register).toHaveBeenCalledTimes(1);
+      expect(register).toHaveBeenCalledWith(
+        "pending-command",
+        expect.any(Function),
+      );
+    } finally {
+      register.mockRestore();
+    }
+  });
+
+  it("ignores a registered annotator the operator did not name (opt-in)", async () => {
+    writeGlobalConfig({ permission: { "*": "ask" } }); // annotatorChain omitted
+
+    const cwd = mkdtempSync(join(tmpdir(), "pi-perm-annot-optin-"));
+    const pi = makeFakePi({ toolNames: ["demo"] });
+    piPermissionSystemExtension(pi as unknown as ExtensionAPI);
+
+    const capturedTitles: string[] = [];
+    const { ctx } = makeUiCtx(cwd, capturedTitles);
+    await fireSessionStart(pi, ctx);
+
+    getPermissionsService("ui-session")!.registerAnnotator(
+      "echo",
+      () => "routine demo call",
+    );
+
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-2", input: {} },
+      ctx,
+    );
+
+    expect(capturedTitles).toHaveLength(1);
+    expect(capturedTitles[0]).not.toContain("model-generated");
+
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("shows the prompt unchanged and records the skip when a configured name is unregistered", async () => {
+    writeGlobalConfig({
+      permission: { "*": "ask" },
+      annotatorChain: ["ghost"],
+    });
+
+    const cwd = mkdtempSync(join(tmpdir(), "pi-perm-annot-ghost-"));
+    const pi = makeFakePi({ toolNames: ["demo"] });
+    piPermissionSystemExtension(pi as unknown as ExtensionAPI);
+
+    const capturedTitles: string[] = [];
+    const notified: string[] = [];
+    const { ctx } = makeUiCtx(cwd, capturedTitles, notified);
+    await fireSessionStart(pi, ctx);
+
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-3", input: {} },
+      ctx,
+    );
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-3-repeat", input: {} },
+      ctx,
+    );
+
+    // More prompting, never less: the human was still asked, with no annotation.
+    expect(capturedTitles).toHaveLength(2);
+    expect(
+      capturedTitles.every((title) => !title.includes("model-generated")),
+    ).toBe(true);
+    expect(
+      readReviewLog().filter(
+        (entry) => entry.event === "annotator_chain_unregistered_link",
+      ),
+    ).toHaveLength(2);
+    // One warning per configured name, not one per prompt: the second prompt
+    // hits the same latched name and stays quiet.
+    expect(notified).toEqual([unregisteredAnnotatorMessage("ghost")]);
+
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("drops the annotation once the registered disposer runs", async () => {
+    writeGlobalConfig({
+      permission: { "*": "ask" },
+      annotatorChain: ["echo"],
+    });
+
+    const cwd = mkdtempSync(join(tmpdir(), "pi-perm-annot-dispose-"));
+    const pi = makeFakePi({ toolNames: ["demo"] });
+    piPermissionSystemExtension(pi as unknown as ExtensionAPI);
+
+    const capturedTitles: string[] = [];
+    const { ctx } = makeUiCtx(cwd, capturedTitles);
+    await fireSessionStart(pi, ctx);
+
+    const dispose = getPermissionsService("ui-session")!.registerAnnotator(
+      "echo",
+      () => "routine demo call",
+    );
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-4", input: {} },
+      ctx,
+    );
+    expect(capturedTitles[0]).toContain("model-generated");
+
+    dispose();
+    await pi.fire(
+      "tool_call",
+      { toolName: "demo", toolCallId: "a-5", input: {} },
+      ctx,
+    );
+    expect(capturedTitles).toHaveLength(2);
+    expect(capturedTitles[1]).not.toContain("model-generated");
 
     rmSync(cwd, { recursive: true, force: true });
   });
@@ -2118,11 +2295,10 @@ describe("tool-surface prose under a custom system prompt", () => {
 });
 
 describe("forwarded grant-scope selection round-trip", () => {
-  // A UI-present serving ctx whose `select` drives the two-step forwarded
-  // dialog: the main prompt picks "for this session" (options[1]); the scope
-  // prompt (options include a "The whole session …" label) returns the chosen
-  // scope. Every `select` options array is recorded so a test can prove the
-  // human was (or was not) re-prompted.
+  // A UI-present serving ctx whose `select` drives the one-step forwarded
+  // dialog: the roster carries the agent-only and whole-session rows, and the
+  // test's `scope` picks which one. Every `select` options array is recorded
+  // so a test can prove the human was (or was not) re-prompted.
   function makeServingCtx(
     cwd: string,
     sessionId: string,
@@ -2135,13 +2311,9 @@ describe("forwarded grant-scope selection round-trip", () => {
         options: string[],
       ): Promise<string | undefined> => {
         selectLog.push(options);
-        const wholeOption = options.find((o) =>
-          o.startsWith("The whole session"),
-        );
-        if (wholeOption) {
-          return scope === "whole" ? wholeOption : options[0];
-        }
-        return options[1];
+        const wanted =
+          scope === "whole" ? "allow for all agents" : "allow for this agent";
+        return options.find((o) => o === wanted) ?? options[1];
       },
     });
   }
@@ -2184,8 +2356,8 @@ describe("forwarded grant-scope selection round-trip", () => {
       makeChildCtx(childCwd, childSessionId),
     )) as { block?: true };
     expect(firstResult.block).toBeUndefined();
-    // One serve = main dialog + scope dialog.
-    expect(selectLog).toHaveLength(2);
+    // One serve = one dialog: the scope choice is a roster row.
+    expect(selectLog).toHaveLength(1);
 
     // 2. A second child `demo` re-forwards and the serving node auto-approves
     // from its recorded whole-session grant — no new human prompt.
@@ -2195,7 +2367,7 @@ describe("forwarded grant-scope selection round-trip", () => {
       makeChildCtx(childCwd, childSessionId),
     )) as { block?: true };
     expect(secondResult.block).toBeUndefined();
-    expect(selectLog).toHaveLength(2);
+    expect(selectLog).toHaveLength(1);
 
     // 3. The parent's own `demo` is session-approved by the same grant.
     const parentResult = (await parentPi.fire(
@@ -2204,7 +2376,7 @@ describe("forwarded grant-scope selection round-trip", () => {
       parentCtx,
     )) as { block?: true };
     expect(parentResult.block).toBeUndefined();
-    expect(selectLog).toHaveLength(2);
+    expect(selectLog).toHaveLength(1);
 
     await parentPi.fire("session_shutdown");
     rmSync(parentCwd, { recursive: true, force: true });
@@ -2248,7 +2420,7 @@ describe("forwarded grant-scope selection round-trip", () => {
       makeChildCtx(childCwd, childSessionId),
     )) as { block?: true };
     expect(firstResult.block).toBeUndefined();
-    expect(selectLog).toHaveLength(2);
+    expect(selectLog).toHaveLength(1);
 
     // 2. The child recorded the grant locally: its next `demo` resolves as a
     // session approval with no forward, so the serving node is not consulted.
@@ -2258,7 +2430,7 @@ describe("forwarded grant-scope selection round-trip", () => {
       makeChildCtx(childCwd, childSessionId),
     )) as { block?: true };
     expect(secondResult.block).toBeUndefined();
-    expect(selectLog).toHaveLength(2);
+    expect(selectLog).toHaveLength(1);
 
     // 3. The parent holds no grant, so its own `demo` prompts again.
     const parentResult = (await parentPi.fire(
@@ -2267,7 +2439,7 @@ describe("forwarded grant-scope selection round-trip", () => {
       parentCtx,
     )) as { block?: true };
     expect(parentResult.block).toBeUndefined();
-    expect(selectLog.length).toBeGreaterThan(2);
+    expect(selectLog.length).toBe(2);
 
     await parentPi.fire("session_shutdown");
     rmSync(parentCwd, { recursive: true, force: true });
@@ -2492,9 +2664,13 @@ describe("configured prompt preferences reach the inline dialog", () => {
           factory: (
             tui: {
               requestRender: () => void;
-              terminal: { write(data: string): void };
+              terminal: { write(data: string): void; rows: number };
             },
-            theme: { fg(color: string, text: string): string },
+            theme: {
+              fg(color: string, text: string): string;
+              bg(color: string, text: string): string;
+              bold(text: string): string;
+            },
             keybindings: { matches(data: string, action: string): boolean },
             done: (decision: unknown) => void,
           ) => typeof component,
@@ -2507,9 +2683,14 @@ describe("configured prompt preferences reach the inline dialog", () => {
                   write: (data): void => {
                     terminalWrites.push(data);
                   },
+                  rows: 60,
                 },
               },
-              { fg: (_color, text) => text },
+              {
+                fg: (_color, text) => text,
+                bg: (_color, text) => text,
+                bold: (text) => text,
+              },
               { matches: () => false },
               resolve,
             );
@@ -2530,7 +2711,7 @@ describe("configured prompt preferences reach the inline dialog", () => {
   /** The hotkey each option row advertises, in rendered order. */
   function optionKeys(lines: string[]): (string | undefined)[] {
     return lines
-      .map((line) => /^[ \u25b6] \((\w)\) /.exec(line)?.[1])
+      .map((line) => /^[\u276f ] (\w)\. /.exec(line)?.[1])
       .filter((key) => key !== undefined);
   }
 
@@ -2644,14 +2825,14 @@ describe("configured prompt preferences reach the inline dialog", () => {
     });
   });
 
-  it("renders and honors the characters the config bound", async () => {
+  it("honors the characters the config bound (rows are numbered by position)", async () => {
     writeGlobalConfig({
       permission: { "*": "allow", demo: "ask" },
       permissionDialogKeys: {
-        approve: "1",
-        approveSession: "2",
-        deny: "4",
-        denyWithReason: "5",
+        approve: "a",
+        approveSession: "c",
+        deny: "e",
+        denyWithReason: "f",
       },
     });
 
@@ -2669,13 +2850,14 @@ describe("configured prompt preferences reach the inline dialog", () => {
     ) as Promise<{ block?: true }>;
     await sleep(0);
 
-    expect(optionKeys(render())).toEqual(["1", "2", "4", "5"]);
+    // Rows show their position, not the configured characters.
+    expect(optionKeys(render())).toEqual(["1", "2", "3"]);
 
     // The default letter is no longer live; the configured one commits.
     press("n");
     press("n");
-    press("4");
-    press("4");
+    press("e");
+    press("e");
     expect((await decision).block).toBe(true);
 
     rmSync(cwd, { recursive: true, force: true });
@@ -2718,7 +2900,8 @@ describe("configured prompt preferences reach the inline dialog", () => {
       ctx,
     ) as Promise<{ block?: true }>;
     await sleep(0);
-    expect(optionKeys(render())).toEqual(["y", "s", "n", "r"]);
+    // Rows are numbered by position either way; the kept default letter commits.
+    expect(optionKeys(render())).toEqual(["1", "2", "3"]);
     press("n");
     press("n");
     expect((await decision).block).toBe(true);

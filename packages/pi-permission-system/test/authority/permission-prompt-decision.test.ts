@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { promptOptions } from "#src/authority/permission-dialog";
 import {
+  actionOrdinal,
   initialPromptState,
   type PromptModelConfig,
   type PromptOutcome,
@@ -27,6 +29,19 @@ function assertRender(
   }
 }
 
+/** The hint a single hotkey press arms, for a config that double-presses. */
+function armedHint(
+  config: PromptModelConfig,
+  action: "approve" | "approveSession" | "approveSessionBoth" | "deny",
+): string {
+  const outcome = reducePrompt(config, initialPromptState(config), {
+    type: "hotkey",
+    action,
+  });
+  assertRender(outcome);
+  return outcome.state.hint;
+}
+
 function makeConfig(
   overrides: Partial<PromptModelConfig> = {},
 ): PromptModelConfig {
@@ -42,21 +57,28 @@ function makeConfig(
 
 describe("reducePrompt", () => {
   describe("initial state", () => {
-    it("starts on the decision step highlighting approve with nothing armed", () => {
+    it("starts highlighting approve with nothing armed", () => {
       const state = initialPromptState(makeConfig());
       expect(state).toEqual({
-        step: "decision",
         highlightedAction: "approve",
         armedAction: undefined,
         hint: "",
-        reasonError: undefined,
-        scopeServing: false,
-        grantWidth: "proven",
       });
     });
   });
 
   describe("double-press to confirm (enabled)", () => {
+    it("confirms the session row in the scope the ask grants, not a fixed verb", () => {
+      // The session row's scope is the ask's: arming it must name the grant it
+      // commits, so a forwarded ask and a serving-session ask read differently.
+      expect(armedHint(makeConfig(), "approveSession")).toBe(
+        "Press s again to allow for all agents.",
+      );
+      expect(armedHint(makeConfig({ forwarded: true }), "approveSession")).toBe(
+        "Press s again to allow for this agent.",
+      );
+    });
+
     it("arms the option on the first hotkey press without deciding", () => {
       const config = makeConfig();
       const outcome = reducePrompt(config, initialPromptState(config), {
@@ -66,13 +88,9 @@ describe("reducePrompt", () => {
       expect(outcome).toEqual({
         kind: "render",
         state: {
-          step: "decision",
           highlightedAction: "approve",
           armedAction: "approve",
-          hint: "Press y again to approve.",
-          reasonError: undefined,
-          scopeServing: false,
-          grantWidth: "proven",
+          hint: "Press y again to allow.",
         },
       });
     });
@@ -108,13 +126,9 @@ describe("reducePrompt", () => {
       expect(armedN).toEqual({
         kind: "render",
         state: {
-          step: "decision",
           highlightedAction: "deny",
           armedAction: "deny",
           hint: "Press n again to deny.",
-          reasonError: undefined,
-          scopeServing: false,
-          grantWidth: "proven",
         },
       });
     });
@@ -166,13 +180,9 @@ describe("reducePrompt", () => {
       expect(outcome).toEqual({
         kind: "render",
         state: {
-          step: "decision",
           highlightedAction: "approveSession",
           armedAction: undefined,
           hint: "",
-          reasonError: undefined,
-          scopeServing: false,
-          grantWidth: "proven",
         },
       });
     });
@@ -180,7 +190,7 @@ describe("reducePrompt", () => {
     it("wraps the highlight from the last option back to the first", () => {
       const config = makeConfig();
       let state = initialPromptState(config);
-      for (const _ of [0, 1, 2, 3]) {
+      for (const _ of [0, 1, 2]) {
         const outcome = reducePrompt(config, state, {
           type: "nav",
           direction: "up",
@@ -188,11 +198,26 @@ describe("reducePrompt", () => {
         assertRender(outcome);
         state = outcome.state;
       }
-      // up from y wraps to r, then walks r→n→s→y over four presses
+      // up from y wraps to deny, then walks deny→session→allow over three presses
       expect(state.highlightedAction).toBe("approve");
     });
 
-    it("confirms the highlighted option in a single enter press even when double-press is enabled", () => {
+    it("arms the highlighted option on enter instead of deciding", () => {
+      const config = makeConfig();
+      const outcome = reducePrompt(config, initialPromptState(config), {
+        type: "confirm",
+      });
+      expect(outcome).toEqual({
+        kind: "render",
+        state: {
+          highlightedAction: "approve",
+          armedAction: "approve",
+          hint: "Press y again to allow.",
+        },
+      });
+    });
+
+    it("commits the highlighted option on the second enter press", () => {
       const config = makeConfig();
       const down = reducePrompt(config, initialPromptState(config), {
         type: "nav",
@@ -205,7 +230,11 @@ describe("reducePrompt", () => {
         direction: "down",
       });
       assertRender(down2);
-      const outcome = reducePrompt(config, down2.state, { type: "confirm" });
+      const armed = reducePrompt(config, down2.state, { type: "confirm" });
+      assertRender(armed);
+      expect(armed.state.armedAction).toBe("deny");
+      expect(armed.state.highlightedAction).toBe("deny");
+      const outcome = reducePrompt(config, armed.state, { type: "confirm" });
       expect(outcome).toEqual({
         kind: "decision",
         decision: { approved: false, state: "denied" },
@@ -226,177 +255,7 @@ describe("reducePrompt", () => {
     });
   });
 
-  describe("deny with reason", () => {
-    it("opens the reason step on confirming r (double-press enabled)", () => {
-      const config = makeConfig();
-      const armed = reducePrompt(config, initialPromptState(config), {
-        type: "hotkey",
-        action: "denyWithReason",
-      });
-      assertRender(armed);
-      const outcome = reducePrompt(config, armed.state, {
-        type: "hotkey",
-        action: "denyWithReason",
-      });
-      expect(outcome).toEqual({
-        kind: "render",
-        state: {
-          step: "reason",
-          highlightedAction: "denyWithReason",
-          armedAction: undefined,
-          hint: "",
-          reasonError: undefined,
-          scopeServing: false,
-          grantWidth: "proven",
-        },
-      });
-    });
-
-    it("opens the reason step immediately when double-press is disabled", () => {
-      const config = makeConfig({ doublePressToConfirm: false });
-      const outcome = reducePrompt(config, initialPromptState(config), {
-        type: "hotkey",
-        action: "denyWithReason",
-      });
-      expect(outcome.kind).toBe("render");
-      assertRender(outcome);
-      expect(outcome.state.step).toBe("reason");
-    });
-
-    it("rejects an empty reason and keeps the reason step open", () => {
-      const config = makeConfig({ doublePressToConfirm: false });
-      const opened = reducePrompt(config, initialPromptState(config), {
-        type: "hotkey",
-        action: "denyWithReason",
-      });
-      assertRender(opened);
-      const outcome = reducePrompt(config, opened.state, {
-        type: "submitReason",
-        draft: "   ",
-      });
-      expect(outcome).toEqual({
-        kind: "render",
-        state: {
-          step: "reason",
-          highlightedAction: "denyWithReason",
-          armedAction: undefined,
-          hint: "",
-          reasonError: "A reason is required.",
-          scopeServing: false,
-          grantWidth: "proven",
-        },
-      });
-    });
-
-    it("commits a denied_with_reason decision for a non-empty reason", () => {
-      const config = makeConfig({ doublePressToConfirm: false });
-      const opened = reducePrompt(config, initialPromptState(config), {
-        type: "hotkey",
-        action: "denyWithReason",
-      });
-      assertRender(opened);
-      const outcome = reducePrompt(config, opened.state, {
-        type: "submitReason",
-        draft: "  not now  ",
-      });
-      expect(outcome).toEqual({
-        kind: "decision",
-        decision: {
-          approved: false,
-          state: "denied_with_reason",
-          denialReason: "not now",
-        },
-      });
-    });
-
-    it("navigates back to the decision step on escape from the reason step", () => {
-      const config = makeConfig({ doublePressToConfirm: false });
-      const opened = reducePrompt(config, initialPromptState(config), {
-        type: "hotkey",
-        action: "denyWithReason",
-      });
-      assertRender(opened);
-      const outcome = reducePrompt(config, opened.state, { type: "cancel" });
-      expect(outcome).toEqual({
-        kind: "render",
-        state: {
-          step: "decision",
-          highlightedAction: "denyWithReason",
-          armedAction: undefined,
-          hint: "",
-          reasonError: undefined,
-          scopeServing: false,
-          grantWidth: "proven",
-        },
-      });
-    });
-  });
-
-  describe("approve-for-session scope (forwarded asks)", () => {
-    const sessionScope = {
-      subagentLabel: "This subagent only",
-      servingSessionLabel: "The whole session",
-    };
-
-    it("opens the scope step when s is confirmed and a sessionScope is offered", () => {
-      const config = makeConfig({ doublePressToConfirm: false, sessionScope });
-      const outcome = reducePrompt(config, initialPromptState(config), {
-        type: "hotkey",
-        action: "approveSession",
-      });
-      expect(outcome.kind).toBe("render");
-      assertRender(outcome);
-      expect(outcome.state.step).toBe("scope");
-      expect(outcome.state.scopeServing).toBe(false);
-    });
-
-    it("commits the least-privilege subagent scope by default", () => {
-      const config = makeConfig({ doublePressToConfirm: false, sessionScope });
-      const opened = reducePrompt(config, initialPromptState(config), {
-        type: "hotkey",
-        action: "approveSession",
-      });
-      assertRender(opened);
-      const outcome = reducePrompt(config, opened.state, { type: "confirm" });
-      expect(outcome).toEqual({
-        kind: "decision",
-        decision: { approved: true, state: "approved_for_session" },
-      });
-    });
-
-    it("commits the serving-session scope when the second option is chosen", () => {
-      const config = makeConfig({ doublePressToConfirm: false, sessionScope });
-      const opened = reducePrompt(config, initialPromptState(config), {
-        type: "hotkey",
-        action: "approveSession",
-      });
-      assertRender(opened);
-      const moved = reducePrompt(config, opened.state, {
-        type: "nav",
-        direction: "down",
-      });
-      assertRender(moved);
-      expect(moved.state.scopeServing).toBe(true);
-      const outcome = reducePrompt(config, moved.state, { type: "confirm" });
-      expect(outcome).toEqual({
-        kind: "decision",
-        decision: { approved: true, state: "approved_for_serving_session" },
-      });
-    });
-
-    it("navigates back to the decision step on escape from the scope step", () => {
-      const config = makeConfig({ doublePressToConfirm: false, sessionScope });
-      const opened = reducePrompt(config, initialPromptState(config), {
-        type: "hotkey",
-        action: "approveSession",
-      });
-      assertRender(opened);
-      const outcome = reducePrompt(config, opened.state, { type: "cancel" });
-      expect(outcome.kind).toBe("render");
-      assertRender(outcome);
-      expect(outcome.state.step).toBe("decision");
-    });
-
+  describe("the session grant in the first prompt", () => {
     it("commits approved_for_session directly when no sessionScope is offered", () => {
       const config = makeConfig({ doublePressToConfirm: false });
       const outcome = reducePrompt(config, initialPromptState(config), {
@@ -408,33 +267,17 @@ describe("reducePrompt", () => {
         decision: { approved: true, state: "approved_for_session" },
       });
     });
-  });
 
-  describe("both-directions session grant (#813)", () => {
-    const widthLabel =
-      'Yes, allow reads and writes to "/tmp/*" for this session';
-
-    it("offers the width option only when the ask is widenable", () => {
-      expect(visibleActions(makeConfig({ widthLabel }))).toEqual([
-        "approve",
-        "approveSession",
-        "approveSessionBoth",
-        "deny",
-        "denyWithReason",
-      ]);
-      expect(visibleActions(makeConfig())).toEqual([
-        "approve",
-        "approveSession",
-        "deny",
-        "denyWithReason",
-      ]);
-    });
-
-    it("commits the family width on b", () => {
-      const config = makeConfig({ doublePressToConfirm: false, widthLabel });
+    it("commits a family-width grant when the widened row was offered (#813)", () => {
+      const config = makeConfig({
+        doublePressToConfirm: false,
+        sessionWidth: {
+          label: "Yes, allow reads and writes for this session",
+        },
+      });
       const outcome = reducePrompt(config, initialPromptState(config), {
         type: "hotkey",
-        action: "approveSessionBoth",
+        action: "approveSession",
       });
       expect(outcome).toEqual({
         kind: "decision",
@@ -446,20 +289,54 @@ describe("reducePrompt", () => {
       });
     });
 
-    it("leaves s at the proven width, naming no width at all", () => {
-      const config = makeConfig({ doublePressToConfirm: false, widthLabel });
+    it("grants family width to the all-agents row too: width is the ask's, scope is orthogonal", () => {
+      const config = makeConfig({
+        doublePressToConfirm: false,
+        sessionScope: true,
+        sessionWidth: {
+          label: "Yes, allow reads and writes for this session",
+        },
+      });
       const outcome = reducePrompt(config, initialPromptState(config), {
         type: "hotkey",
-        action: "approveSession",
+        action: "approveSessionBoth",
       });
       expect(outcome).toEqual({
         kind: "decision",
-        decision: { approved: true, state: "approved_for_session" },
+        decision: {
+          approved: true,
+          state: "approved_for_serving_session",
+          sessionGrantWidth: "family",
+        },
       });
+    });
+  });
+
+  describe("the all-agents row (gate-gated)", () => {
+    it("offers the all-agents row when the gate suggested session grants", () => {
+      expect(visibleActions(makeConfig({ sessionScope: true }))).toEqual([
+        "approve",
+        "approveSession",
+        "approveSessionBoth",
+        "deny",
+      ]);
+    });
+
+    it("stays at the four-option roster when the widened row replaces the session label (#813)", () => {
+      expect(
+        visibleActions(
+          makeConfig({
+            sessionScope: true,
+            sessionWidth: {
+              label: "Yes, allow reads and writes for this session",
+            },
+          }),
+        ),
+      ).toEqual(["approve", "approveSession", "approveSessionBoth", "deny"]);
     });
 
     it("arms b like any other hotkey under double-press", () => {
-      const config = makeConfig({ widthLabel });
+      const config = makeConfig({ sessionScope: true });
       const outcome = reducePrompt(config, initialPromptState(config), {
         type: "hotkey",
         action: "approveSessionBoth",
@@ -467,13 +344,9 @@ describe("reducePrompt", () => {
       expect(outcome).toEqual({
         kind: "render",
         state: {
-          step: "decision",
           highlightedAction: "approveSessionBoth",
           armedAction: "approveSessionBoth",
-          hint: "Press b again to approve both directions for this session.",
-          reasonError: undefined,
-          scopeServing: false,
-          grantWidth: "proven",
+          hint: "Press b again to allow for all agents.",
         },
       });
     });
@@ -490,30 +363,8 @@ describe("reducePrompt", () => {
       });
     });
 
-    it("walks five options when the width option is offered", () => {
-      const config = makeConfig({ widthLabel });
-      let state = initialPromptState(config);
-      const seen: string[] = [];
-      for (const _ of [0, 1, 2, 3, 4]) {
-        const outcome = reducePrompt(config, state, {
-          type: "nav",
-          direction: "down",
-        });
-        assertRender(outcome);
-        state = outcome.state;
-        seen.push(state.highlightedAction);
-      }
-      expect(seen).toEqual([
-        "approveSession",
-        "approveSessionBoth",
-        "deny",
-        "denyWithReason",
-        "approve",
-      ]);
-    });
-
-    it("skips b when navigating an ask that is not widenable", () => {
-      const config = makeConfig();
+    it("walks four options when the all-agents row is offered", () => {
+      const config = makeConfig({ sessionScope: true });
       let state = initialPromptState(config);
       const seen: string[] = [];
       for (const _ of [0, 1, 2, 3]) {
@@ -527,108 +378,36 @@ describe("reducePrompt", () => {
       }
       expect(seen).toEqual([
         "approveSession",
+        "approveSessionBoth",
         "deny",
-        "denyWithReason",
         "approve",
       ]);
     });
 
-    describe("with a forwarded ask's scope step", () => {
-      const sessionScope = {
-        subagentLabel: "This subagent only",
-        servingSessionLabel: "The whole session",
-      };
-
-      it("carries the width chosen on b through the scope step", () => {
-        const config = makeConfig({
-          doublePressToConfirm: false,
-          widthLabel,
-          sessionScope,
-        });
-        const opened = reducePrompt(config, initialPromptState(config), {
-          type: "hotkey",
-          action: "approveSessionBoth",
-        });
-        assertRender(opened);
-        expect(opened.state.step).toBe("scope");
-        expect(reducePrompt(config, opened.state, { type: "confirm" })).toEqual(
-          {
-            kind: "decision",
-            decision: {
-              approved: true,
-              state: "approved_for_session",
-              sessionGrantWidth: "family",
-            },
-          },
-        );
-      });
-
-      it("carries the width onto a whole-serving-session grant too", () => {
-        const config = makeConfig({
-          doublePressToConfirm: false,
-          widthLabel,
-          sessionScope,
-        });
-        const opened = reducePrompt(config, initialPromptState(config), {
-          type: "hotkey",
-          action: "approveSessionBoth",
-        });
-        assertRender(opened);
-        const moved = reducePrompt(config, opened.state, {
+    it("skips the all-agents row when no session grants were suggested", () => {
+      const config = makeConfig();
+      let state = initialPromptState(config);
+      const seen: string[] = [];
+      for (const _ of [0, 1, 2]) {
+        const outcome = reducePrompt(config, state, {
           type: "nav",
           direction: "down",
         });
-        assertRender(moved);
-        expect(reducePrompt(config, moved.state, { type: "confirm" })).toEqual({
-          kind: "decision",
-          decision: {
-            approved: true,
-            state: "approved_for_serving_session",
-            sessionGrantWidth: "family",
-          },
-        });
-      });
-
-      it("forgets a backed-out width when the scope step cancels", () => {
-        const config = makeConfig({
-          doublePressToConfirm: false,
-          widthLabel,
-          sessionScope,
-        });
-        const opened = reducePrompt(config, initialPromptState(config), {
-          type: "hotkey",
-          action: "approveSessionBoth",
-        });
-        assertRender(opened);
-        const cancelled = reducePrompt(config, opened.state, {
-          type: "cancel",
-        });
-        assertRender(cancelled);
-        expect(cancelled.state.grantWidth).toBe("proven");
-
-        // The narrow option must not inherit the width the user backed out of.
-        const reopened = reducePrompt(config, cancelled.state, {
-          type: "hotkey",
-          action: "approveSession",
-        });
-        assertRender(reopened);
-        expect(
-          reducePrompt(config, reopened.state, { type: "confirm" }),
-        ).toEqual({
-          kind: "decision",
-          decision: { approved: true, state: "approved_for_session" },
-        });
-      });
+        assertRender(outcome);
+        state = outcome.state;
+        seen.push(state.highlightedAction);
+      }
+      expect(seen).toEqual(["approveSession", "deny", "approve"]);
     });
   });
 
   describe("bound characters", () => {
     const REMAPPED = {
-      approve: "1",
-      approveSession: "2",
-      approveSessionBoth: "3",
-      deny: "4",
-      denyWithReason: "5",
+      approve: "a",
+      approveSession: "c",
+      approveSessionBoth: "d",
+      deny: "e",
+      denyWithReason: "f",
     } as const;
 
     it("names the bound character in the arming hint", () => {
@@ -638,7 +417,7 @@ describe("reducePrompt", () => {
         action: "approve",
       });
       assertRender(outcome);
-      expect(outcome.state.hint).toBe("Press 1 again to approve.");
+      expect(outcome.state.hint).toBe("Press a again to allow.");
     });
 
     it("names the default letter when no binding was configured", () => {
@@ -649,6 +428,151 @@ describe("reducePrompt", () => {
       });
       assertRender(outcome);
       expect(outcome.state.hint).toBe("Press n again to deny.");
+    });
+  });
+});
+
+describe("option ordinals", () => {
+  const narrow = makeConfig();
+  const wide = makeConfig({ sessionScope: true });
+
+  it("numbers the narrow roster 1..3, skipping the both-directions row", () => {
+    expect(actionOrdinal(narrow, "approve")).toBe(1);
+    expect(actionOrdinal(narrow, "approveSession")).toBe(2);
+    expect(actionOrdinal(narrow, "deny")).toBe(3);
+  });
+
+  it("numbers the wide roster 1..4", () => {
+    expect(actionOrdinal(wide, "approveSessionBoth")).toBe(3);
+    expect(actionOrdinal(wide, "deny")).toBe(4);
+  });
+
+  it("returns 0 for an action the roster does not offer", () => {
+    // Documented contract: an action with no row gets no number, so it can
+    // never be selected by a digit.
+    expect(actionOrdinal(narrow, "approveSessionBoth")).toBe(0);
+    expect(actionOrdinal(wide, "approveSessionBoth")).toBe(3);
+  });
+});
+
+describe("a digit hotkey (the key herdr presses)", () => {
+  const config = makeConfig();
+
+  it("arms and names the digit that was pressed", () => {
+    const outcome = reducePrompt(config, initialPromptState(config), {
+      type: "hotkey",
+      action: "approve",
+      key: "1",
+    });
+    expect(outcome).toMatchObject({
+      kind: "render",
+      state: { armedAction: "approve", hint: "Press 1 again to allow." },
+    });
+  });
+
+  it("commits on the Enter herdr sends next", () => {
+    const armed = reducePrompt(config, initialPromptState(config), {
+      type: "hotkey",
+      action: "approve",
+      key: "1",
+    });
+    assertRender(armed);
+    expect(reducePrompt(config, armed.state, { type: "confirm" })).toEqual({
+      kind: "decision",
+      decision: { approved: true, state: "approved" },
+    });
+  });
+
+  it("still names the configured letter when no key is carried (Enter-driven arm)", () => {
+    const outcome = reducePrompt(config, initialPromptState(config), {
+      type: "hotkey",
+      action: "approve",
+    });
+    expect(outcome).toMatchObject({
+      state: { hint: "Press y again to allow." },
+    });
+  });
+});
+
+describe("the one-step roster", () => {
+  it("offers exactly allow / allow for this agent / allow for all agents / deny for a forwarded ask with a scope choice", () => {
+    const config = makeConfig({
+      doublePressToConfirm: false,
+      forwarded: true,
+      sessionScope: true,
+    });
+    expect(visibleActions(config)).toEqual([
+      "approve",
+      "approveSession",
+      "approveSessionBoth",
+      "deny",
+    ]);
+  });
+
+  it("drops the reason option: the first prompt is the only prompt", () => {
+    const config = makeConfig({ doublePressToConfirm: false });
+    expect(visibleActions(config)).toEqual([
+      "approve",
+      "approveSession",
+      "deny",
+    ]);
+  });
+
+  it("labels the roster from the one source the fallback dialog renders", () => {
+    expect(
+      promptOptions({ forwarded: true, sessionScope: true }).map(
+        (row) => row.label,
+      ),
+    ).toEqual([
+      "allow",
+      "allow for this agent",
+      "allow for all agents",
+      "deny",
+    ]);
+    expect(promptOptions().map((row) => row.label)).toEqual([
+      "allow",
+      "allow for all agents",
+      "deny",
+    ]);
+  });
+
+  it("keeps a gate-supplied pattern label on the session row", () => {
+    expect(
+      promptOptions({ sessionLabel: "Yes, allow reading to /tmp/*" }).map(
+        (row) => row.label,
+      ),
+    ).toEqual(["allow", "Yes, allow reading to /tmp/*", "deny"]);
+  });
+
+  it("commits approved_for_session in the first prompt when a scope choice is offered", () => {
+    const config = makeConfig({
+      doublePressToConfirm: false,
+      forwarded: true,
+      sessionScope: true,
+    });
+    const outcome = reducePrompt(config, initialPromptState(config), {
+      type: "hotkey",
+      action: "approveSession",
+    });
+    expect(outcome).toEqual({
+      kind: "decision",
+      decision: { approved: true, state: "approved_for_session" },
+    });
+  });
+
+  it("commits approved_for_serving_session from the all-agents row", () => {
+    const config = makeConfig({
+      doublePressToConfirm: false,
+      forwarded: true,
+      sessionScope: true,
+    });
+    const outcome = reducePrompt(config, initialPromptState(config), {
+      type: "hotkey",
+      action: "approveSessionBoth",
+    });
+    expect(outcome).toEqual({
+      kind: "decision",
+      decision: { approved: true, state: "approved_for_serving_session" },
     });
   });
 });

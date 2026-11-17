@@ -111,19 +111,21 @@ This clamp is deny-preserving and, like `yoloMode`, applied at composition; when
 | `permissionReviewLog`       | `true`   | Enables the permission request/denial review log at `logs/pi-permission-system-permission-review.jsonl`. Records bash command strings, masked only where a name binds the secret — see [Log file sensitivity](#log-file-sensitivity)         |
 | `yoloMode`                  | `false`  | Auto-approves `ask` results instead of prompting when yolo mode is enabled                                                                                                                                                                   |
 | `doublePressToConfirm`      | `true`   | Requires a confirming second press of a decision hotkey in the inline TUI dialog (see below). TUI sessions only; set to `false` for single-press.                                                                                            |
-| `permissionDialogKeys`      | —        | Remaps the inline TUI dialog's decision hotkeys (see below). One printable character per decision; omitted decisions keep `y` / `s` / `b` / `n` / `r`.                                                                                       |
+| `permissionDialogKeys`      | —        | Remaps the inline TUI dialog's decision hotkeys (see below). One printable character per decision; omitted decisions keep `y` / `s` / `b` / `n` / `r`. Digits `1`–`9` are reserved for the numbered rows and cannot be remapped.             |
 | `promptNotifications`       | `[]`     | Terminal notifications to emit when the inline TUI dialog opens: `"bell"`, `"osc9"`, `"osc777"` (see below). Empty for none.                                                                                                                 |
 | `forwardingTimeoutMs`       | `600000` | How long a subagent waits for the parent session to answer a forwarded permission request, in milliseconds. A child whose parent is not draining its inbox gives up in ~2 s regardless, whether that parent runs in this process or its own. |
 | `promptTimeoutMs`           | —        | How long a permission prompt, once shown, waits for an answer before it is dismissed and the request denied, in milliseconds. Unset (the default) means no timer. See [Unanswered prompts](#unanswered-prompts).                             |
-| `promptMaxRows`             | `24`     | Max rows a permission prompt renders before eliding its evidence. The request's own facts are never elided by this budget; `Ctrl+O` expands the prompt to the complete request.                                                              |
+| `promptMaxRows`             | `24`     | Max rows a permission prompt renders before eliding its annotations, then its evidence. The request's own facts are never elided by this budget; `Ctrl+O` expands the prompt to the complete request.                                        |
 | `promptFieldMaxWidth`       | `400`    | Max characters of any one field shown in a permission prompt. This is what bounds a single long field (a here-string command, say) that would otherwise fill the prompt through wrapping.                                                    |
 | `reviewLogFieldMaxWidth`    | `1000`   | Max characters of any one value written to the review log. A longer value is stored shortened, marked with an ellipsis. Raise it to keep longer values; this is a length bound, not redaction.                                               |
 | `toolInputPreviewMaxLength` | —        | **Deprecated and ignored.** Superseded by `promptMaxRows` / `promptFieldMaxWidth`. Still accepted so an existing config is not rejected, but the value no longer applies; setting it logs a warning.                                         |
 | `toolTextSummaryMaxLength`  | —        | **Deprecated and ignored.** Superseded by `promptMaxRows` / `promptFieldMaxWidth`. Still accepted so an existing config is not rejected, but the value no longer applies; setting it logs a warning.                                         |
 | `piInfrastructureReadPaths` | `[]`     | Extra directories to auto-allow for reads, bypassing the `external_directory` gate. Supports `~`/`$HOME`/`${HOME}` expansion and wildcard patterns (`*`, `?`).                                                                               |
 | `authorizerChain`           | `[]`     | Ordered names of registered live-authority chain links to consult before the terminal authorizer (see [Authorizer chain](#authorizer-chain--case-by-case-decision-links)).                                                                   |
+| `annotatorChain`            | `[]`     | Ordered names of registered prompt annotators whose advisory text a permission prompt shows, labelled model-generated (see [Prompt annotations](#prompt-annotations)).                                                                       |
+| `annotatorTimeoutMs`        | `1500`   | How long a prompt waits for its annotators before it is shown without the pending ones, in milliseconds (see [Prompt annotations](#prompt-annotations)).                                                                                     |
 
-Every array field (`promptNotifications`, `piInfrastructureReadPaths`, `authorizerChain`, and a `commandEffects` entry's `effects` and `unlessOption` lists) accepts at most 1,000 entries.
+Every array field (`promptNotifications`, `piInfrastructureReadPaths`, `authorizerChain`, `annotatorChain`, and a `commandEffects` entry's `effects` and `unlessOption` lists) accepts at most 1,000 entries.
 A longer list makes the file invalid, so it is rejected like any other invalid value (see [Merge Precedence](#merge-precedence) for how an invalid scope fails closed).
 
 Both logs write to `~/.pi/agent/extensions/pi-permission-system/logs/`.
@@ -131,23 +133,30 @@ No debug output is printed to the terminal.
 
 ### Inline permission dialog (TUI)
 
-In an interactive **TUI** session, an `ask` decision opens an inline keybind dialog with one-key shortcuts:
+In an interactive **TUI** session, an `ask` decision opens an inline keybind dialog with one-key shortcuts: Every option is numbered in the order shown; press the number, or the bound key.
 
-| Key | Action                                                            |
-| --- | ----------------------------------------------------------------- |
-| `y` | Approve once                                                      |
-| `s` | Approve for this session, in the direction the gate proved        |
-| `b` | Approve for this session in **both** directions (see below)       |
-| `n` | Deny                                                              |
-| `r` | Deny with a reason (opens an inline editor; a reason is required) |
+| Key | Action                                                                          |
+| --- | ------------------------------------------------------------------------------- |
+| `y` | Approve once                                                                    |
+| `s` | Approve for this session, in the direction the gate proved                      |
+| `b` | Approve for this session in **both** directions (see below)                     |
+| `n` | Deny                                                                            |
+| `r` | Accepted for compatibility; the dialog has no reason row, so it selects nothing |
 
 `b` appears only for an ask whose paths all prove the same direction — a read or a write, but not both.
 Every other ask shows the four options above without it.
 See [session-approvals.md](session-approvals.md#grant-direction) for what the two widths grant.
 
 Arrow keys / `j`/`k` move the highlight, `enter` confirms the highlighted option, and `esc` denies.
-With `doublePressToConfirm` enabled (the default), a hotkey **arms** its action and shows a `Press y again to approve.` hint; press the same key again to commit.
+The dialog is drawn with a bordered header and a ❯ option list, like Pi's own question dialogs; each row shows its position number — `❯ 1. Yes`, `2. Yes, for this session`, and so on down the visible roster, with deny at `3.` on an ask that omits the both-directions grant and at `4.` on one that offers it — and pressing that number selects the row.
+The row no longer prints the key bound to it: herdr's scrape pattern requires a digit immediately after the pointer, so a `1/y.` prefix would match nothing.
+The number is the row's position, and the configured letter remains a working alias.
+The footer names the pending deadline when promptTimeoutMs is set.
+With `doublePressToConfirm` enabled (the default), a key **arms** its action and shows a `Press 1 again to approve.` hint — echoing the key you pressed; an arm started by `enter` instead names the bound key — press the same key again, or `enter`, to commit.
 Set `doublePressToConfirm` to `false` to commit on the first press.
+
+**Every row is answerable from a digit.**
+The dialog has no row that needs a typed answer, so herdr's Asks panel can answer any of them: it renders each numbered row as a button and answers by sending that digit, then `enter`.
 
 #### Remapping the hotkeys
 
@@ -156,25 +165,28 @@ Set `permissionDialogKeys` to bind any decision to a different key:
 ```jsonc
 {
   "permissionDialogKeys": {
-    "approve": "1",
-    "approveSession": "2",
-    "approveSessionBoth": "3",
-    "deny": "4",
-    "denyWithReason": "5"
+    "approve": "a",
+    "approveSession": "f",
+    "approveSessionBoth": "w",
+    "deny": "d"
   }
 }
 ```
 
 The five decision names above are the only keys the map accepts, and each is optional — a decision you do not name keeps its default letter.
+Digits `1`–`9` cannot appear here at all (see the refusal list below); an example that once mapped `1`–`5` would now be refused entry by entry.
 
-This exists for input method editors.
-While an IME is composing — Chinese Pinyin or Wubi, Japanese, Korean — a letter keypress is consumed by the candidate buffer and never reaches the terminal, so `y` and `n` do nothing and the dialog looks frozen.
-The usual way out of a candidate popup is `esc`, which *does* reach the terminal and which this dialog reads as a denial, so a call you meant to approve gets refused.
-Digits are unaffected on essentially every layout, which is why `1`–`5` is the mapping to reach for.
+Remaps exist for muscle memory and old habits.
+The IME problem that used to motivate them is covered by the numbering instead: while an IME is composing — Chinese Pinyin or Wubi, Japanese, Korean — a letter keypress is consumed by the candidate buffer and never reaches the terminal, so `y` and `n` do nothing and the dialog looks frozen, and the usual way out of a candidate popup is `esc`, which *does* reach the terminal and which this dialog reads as a denial, so a call you meant to approve gets refused.
+Digits are unaffected on essentially every layout, and the numbered rows answer that case with no remap at all — which is also why digits are now reserved rather than remappable.
 
-Each value is a **single printable character**: a lowercase letter, a digit, or a symbol.
-Three things are refused:
+Each value is a **single printable character**: a lowercase letter, the digit `0`, or a symbol.
+Four things are refused:
 
+- A digit (`1`–`9`).
+  The rows print their position number, and the number pressed must always select the row it labels: with `{"deny": "1"}` row 1 would render `Yes` while pressing `1` denies — a button that lies about what it does.
+  Digits are the rows' own vocabulary and are reserved, so an entry naming one is refused with a message and that decision keeps its default.
+  **Behaviour change:** a digit binding written before this reservation stops applying — it is refused with the same message and silently falls back to the default letter.
 - `j` and `k`, which move the dialog's highlight — a decision bound to one would never fire.
 - An uppercase letter.
   Pi lowercases a key identifier, so `"Y"` would answer to a lowercase `y` rather than to the keystroke you asked for.
@@ -190,11 +202,6 @@ Pi's tool-expansion binding (`app.tools.expand`, `Ctrl+O` by default) stays live
 It expands both the prompt itself — to the complete request, unbounded by `promptMaxRows` and `promptFieldMaxWidth` — and the host's pending tool call, so one keystroke shows you everything before you decide.
 It only toggles the display — it never resolves, commits, or arms the pending decision.
 Because it is offered ahead of the decision keys, a printable rebinding of it shadows a `permissionDialogKeys` entry that names the same character.
-While you are typing a denial reason it is not intercepted, so a rebound printable key still reaches the reason editor.
-
-The reason editor is Pi's own line editor, so it behaves like the chat input: pasting works, as do cursor movement, word and line deletion, the kill ring, and undo.
-The reason is a single line — a pasted line break becomes a space, and a long reason scrolls sideways rather than growing the dialog.
-`enter` submits it, and `esc` (or `Ctrl+C`) returns to the decision list without denying.
 
 #### Terminal notifications
 
@@ -256,8 +263,8 @@ The review log records the decision as `decidedBy: { "kind": "unanswered", "time
 
 The clock starts when a prompt is shown, not when the request is raised.
 A request waiting behind another open prompt gets its own full window once it is shown, so several unanswered requests take about one window each.
-In the inline TUI dialog, the hint row names the window while it runs, and pressing any key stops the clock: once you start answering (moving the highlight, typing a denial reason), the dialog waits for you to finish.
-The `select` fallback outside TUI mode has no keystroke to watch, so its window runs until you finish answering or it expires, and it spans the follow-up dialogs too: a window that expires while the grant-scope choice or the denial-reason input is open discards the half-made answer and denies the request as unanswered.
+In the inline TUI dialog, the hint row names the window while it runs, and pressing any key stops the clock: once you start answering (moving the highlight, or arming a decision), the dialog waits for you to finish.
+The `select` fallback outside TUI mode has no keystroke to watch, so its window runs until you finish answering or it expires.
 
 A request forwarded from a subagent is shown in the parent session, so the **parent's** `promptTimeoutMs` applies to it, and the subagent receives the same unanswered denial.
 The subagent separately stops waiting after `forwardingTimeoutMs`; keep `promptTimeoutMs` below it, or the subagent can give up while the parent's prompt is still open.
@@ -268,7 +275,7 @@ The prompt renders one fact per line, with the requesting agent (and, for a forw
 Those facts are always present: a budget may shorten a long one, never drop it.
 A fact the line above already states is not repeated — a bash ask shows `tool : bash` without a second `surface : bash` line, and a path ask's `path :` line names the surface itself.
 
-Everything else is evidence — the full command a gated sub-command came from, the working directory a path escaped, the tool-input preview — and it is what gives way when the render does not fit.
+Everything else is evidence — the full command a gated sub-command came from, the working directory a path escaped, the tool-input preview — and it is what gives way when the render does not fit, after the model-generated annotations, which give way first.
 A shortened field or a dropped entry is marked with an ellipsis, and `Ctrl+O` shows the complete request.
 Raise `promptMaxRows` to see more evidence inline; raise `promptFieldMaxWidth` to see more of a long command.
 
@@ -384,6 +391,41 @@ The details' `accessIntent` carries the gate surface the rule fired on and, on a
 Registration returns a disposer, and only one link may hold a given name.
 Register in every session without branching: a session that relays its asks accepts the link and records `authorizer_link_vacant` rather than refusing it.
 For a complete working example, see [`@gotgenes/pi-permission-model-judge`](https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-model-judge): it registers a `model-judge` link on `permissions:ready` that reviews `external_directory` asks and auto-denies mistyped paths with a corrective reason.
+
+---
+
+### Prompt annotations
+
+A downstream extension can register a **prompt annotator**: a function that sees the ask and returns a short piece of advisory text, such as a plain-language explanation of a command.
+The permission prompt shows that text under a `model-generated (<name>)` label, below the evidence, so it is never mistaken for a fact about the request.
+
+`annotatorChain` is the ordered list of annotator names to consult:
+
+```jsonc
+{
+  "annotatorChain": ["explainer"],
+  "annotatorTimeoutMs": 1500
+}
+```
+
+Four invariants govern it:
+
+1. **Advisory only.**
+   An annotation can never allow, deny, defer, or suppress the ask.
+   It is a different kind of value from a chain link's verdict, and the types do not let one stand in for the other.
+2. **A missing annotator is skipped fail-safe, and you are told.**
+   A name with no registered annotator is skipped and the prompt is shown unchanged.
+   The skip is recorded in the review log as `annotator_chain_unregistered_link` for every prompt, and raises one warning per name.
+3. **Registration alone shows nothing.**
+   Installing an annotator extension gives it nothing; it runs only when you name it here, in this order.
+4. **Slow or broken annotators cost nothing but time.**
+   An annotator that declines, throws, or has not answered within `annotatorTimeoutMs` adds nothing, and the prompt is shown as it would be without it.
+   The deadline covers the whole chain, so an opted-in prompt is delayed by at most `annotatorTimeoutMs`, with a 250 ms guard grace (`annotatorTimeoutMs + 250 ms` in the worst case, for an implementation that ignores its own deadline); with no annotator configured and registered, nothing waits.
+
+An annotation is the first thing a row budget drops, ahead of the supporting evidence; the request's own facts are never dropped.
+An annotation is shown only in the prompt on the session that shows it.
+It is never sent to the agent, written to the review log, or broadcast on `permissions:ui_prompt`.
+A subagent's forwarded ask is annotated by the session that serves it; annotations a child sends are discarded.
 
 ---
 

@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { ParentAuthorizer } from "#src/authority/approval-escalator";
+import type { ForwarderContext } from "#src/authority/forwarder-context";
 import {
   type ForwardedPermissionRequest,
   PERMISSION_FORWARDING_SERVING_GRACE_MS,
@@ -1013,6 +1014,103 @@ describe("ParentAuthorizer abandonment", () => {
       await authorizer.authorize({ ...forwardedAsk });
 
       expect(existsSync(temp.location.requestsDir)).toBe(false);
+    } finally {
+      temp.cleanup();
+    }
+  });
+});
+
+describe("ParentAuthorizer blocked status", () => {
+  test("reports blocked while the forwarded poll waits and working once it settles", async () => {
+    const temp = createForwardingTempDir("parent-session");
+    // What the fake terminal received, in call order, via OSC 7501.
+    const statuses: unknown[] = [];
+    // Components the ui.custom factory produced; the status line is the only one.
+    const components: { render(width: number): string[] }[] = [];
+    const optionCalls: unknown[] = [];
+    const custom = (
+      factory: (
+        tui: { terminal: { setProgramStatus(status: unknown): void } },
+        theme: unknown,
+        keybindings: unknown,
+        done: (result: undefined) => void,
+      ) => { render(width: number): string[] },
+      options: unknown,
+    ) => {
+      optionCalls.push(options);
+      components.push(
+        factory(
+          {
+            terminal: {
+              setProgramStatus: (status: unknown) => {
+                statuses.push(status);
+              },
+            },
+          },
+          {},
+          {},
+          () => {},
+        ),
+      );
+      return new Promise<undefined>(() => {});
+    };
+    try {
+      const authorizer = new ParentAuthorizer(
+        makeForwarderContext({
+          hasUI: true,
+          sessionId: "child-session",
+          ui: {
+            select: vi.fn(),
+            input: vi.fn(),
+            custom,
+          } as unknown as ForwarderContext["ui"],
+        }),
+        makeParentAuthorizerDeps({
+          forwardingDir: temp.forwardingDir,
+          registry: makeSubagentRegistry("child-session", {
+            parentSessionId: "parent-session",
+          }),
+        }),
+      );
+
+      const decisionPromise = authorizer.authorize(
+        makePromptDetails({ requestId: "perm-child-request" }),
+      );
+
+      // The status line mounts once, before the poll starts, and says blocked.
+      expect(optionCalls).toEqual([
+        {
+          overlay: false,
+          blocked: {
+            kind: "permission",
+            message: expect.any(String),
+          },
+        },
+      ]);
+      expect(components.at(0)?.render(80).join("\n")).toContain(
+        "Waiting for parent session approval",
+      );
+      expect(statuses.at(-1)).toMatchObject({
+        state: "blocked",
+        kind: "permission",
+      });
+
+      const request = await waitForRequestFile(temp.location.requestsDir);
+      writeFileSync(
+        join(temp.location.responsesDir, `${request.id}.json`),
+        JSON.stringify({
+          approved: true,
+          state: "approved",
+          responderSessionId: "parent-session",
+        }),
+        "utf-8",
+      );
+
+      await expect(decisionPromise).resolves.toMatchObject({
+        approved: true,
+        state: "approved",
+      });
+      expect(statuses.at(-1)).toEqual({ state: "working" });
     } finally {
       temp.cleanup();
     }

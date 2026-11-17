@@ -218,6 +218,28 @@ describe("normalizePermissionSystemConfig", () => {
     expect("authorizerChain" in result).toBe(false);
   });
 
+  it("includes annotatorChain when provided", () => {
+    const result = normalizePermissionSystemConfig({
+      annotatorChain: ["explainer", "risk-note"],
+    });
+    expect(result.annotatorChain).toEqual(["explainer", "risk-note"]);
+  });
+
+  it("omits annotatorChain when absent", () => {
+    const result = normalizePermissionSystemConfig({});
+    expect("annotatorChain" in result).toBe(false);
+  });
+
+  it("includes annotatorTimeoutMs when provided", () => {
+    const result = normalizePermissionSystemConfig({ annotatorTimeoutMs: 800 });
+    expect(result.annotatorTimeoutMs).toBe(800);
+  });
+
+  it("omits annotatorTimeoutMs when absent, leaving the default to the consumer", () => {
+    const result = normalizePermissionSystemConfig({});
+    expect("annotatorTimeoutMs" in result).toBe(false);
+  });
+
   it("includes permissionDialogKeys when provided", () => {
     const result = normalizePermissionSystemConfig({
       permissionDialogKeys: { approve: "1", deny: "4" },

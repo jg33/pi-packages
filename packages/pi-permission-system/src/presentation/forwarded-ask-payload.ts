@@ -12,6 +12,12 @@ import type { PromptPayload, PromptRequester } from "./prompt-payload";
  * A request carrying no payload renders from whatever it does hold: fail-closed
  * applies to presentation as it does to policy, so a version-skewed ask still
  * reaches the human rather than resolving without one (ADR 0011 §9).
+ *
+ * This is the read boundary, and the serving node is the trust boundary: the
+ * child's `annotations` slot is discarded unread, whatever the child filled in.
+ * A child that blanks its own slot is cooperative defence only; a hostile child
+ * could label its own text `model-generated (trusted-judge)`, so the serving
+ * node authors the slot itself (#654, ADR 0011 §8).
  */
 export function buildForwardedAskPayload(
   request: ForwardedPermissionRequest,
@@ -19,7 +25,8 @@ export function buildForwardedAskPayload(
   // The child built its payload with `localRequester` — `forwarded: false`,
   // `sessionId: null`. The serving node is the only party that knows the ask
   // arrived over the wire, and the request's own provenance is authoritative
-  // (#292); everything else is the child's fact and passes through untouched.
+  // (#292); every other fact is the child's and passes through untouched —
+  // except the annotations slot, which this node owns (see above).
   const requester: PromptRequester = {
     agentName: request.requesterAgentName,
     forwarded: true,
@@ -30,6 +37,9 @@ export function buildForwardedAskPayload(
     ? {
         ...request.payload,
         request: { ...request.payload.request, requester },
+        // Discarded on read, not trusted from the wire: only an annotator
+        // registered on this node may write here, via `AnnotationRunner`.
+        annotations: [],
       }
     : degradedForwardedPayload(request, requester);
 }

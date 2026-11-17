@@ -97,27 +97,27 @@ describe("resolveDialogKeys", () => {
     it("applies every configured decision", () => {
       expect(
         resolve({
-          approve: "1",
-          approveSession: "2",
-          approveSessionBoth: "3",
-          deny: "4",
-          denyWithReason: "5",
+          approve: "a",
+          approveSession: "c",
+          approveSessionBoth: "d",
+          deny: "e",
+          denyWithReason: "f",
         }),
       ).toEqual({
         keys: {
-          approve: "1",
-          approveSession: "2",
-          approveSessionBoth: "3",
-          deny: "4",
-          denyWithReason: "5",
+          approve: "a",
+          approveSession: "c",
+          approveSessionBoth: "d",
+          deny: "e",
+          denyWithReason: "f",
         },
         issues: [],
       });
     });
 
     it("leaves an unnamed decision on its default", () => {
-      expect(resolve({ approve: "1" })).toEqual({
-        keys: { ...DEFAULT_DIALOG_KEYS, approve: "1" },
+      expect(resolve({ approve: "a" })).toEqual({
+        keys: { ...DEFAULT_DIALOG_KEYS, approve: "a" },
         issues: [],
       });
     });
@@ -164,16 +164,27 @@ describe("resolveDialogKeys", () => {
         ]);
       },
     );
+
+    it("keeps the default and reports a digit, which numbers a row", () => {
+      // Rows are numbered 1..n and herdr presses the number, so a digit bound
+      // to a decision would make row 1 answer "Yes" while pressing 1 denies.
+      const resolution = resolve({ deny: "1" });
+      expect(resolution.keys).toEqual(DEFAULT_DIALOG_KEYS);
+      expect(resolution.issues).toEqual([
+        'permissionDialogKeys.deny: "1" is reserved for choosing a numbered ' +
+          'option row; keeping the default "n".',
+      ]);
+    });
   });
 
   describe("with colliding bindings", () => {
     it("drops both overrides when two decisions claim one character", () => {
-      const resolution = resolve({ approve: "1", deny: "1" });
+      const resolution = resolve({ approve: "q", deny: "q" });
       expect(resolution.keys).toEqual(DEFAULT_DIALOG_KEYS);
       expect(resolution.issues).toEqual([
-        'permissionDialogKeys.approve: "1" is already bound to another ' +
+        'permissionDialogKeys.approve: "q" is already bound to another ' +
           'decision; keeping the default "y".',
-        'permissionDialogKeys.deny: "1" is already bound to another ' +
+        'permissionDialogKeys.deny: "q" is already bound to another ' +
           'decision; keeping the default "n".',
       ]);
     });
@@ -203,7 +214,7 @@ describe("resolveDialogKeys", () => {
 
     it("keeps an override whose collision was resolved by a sibling move", () => {
       // `approve` takes deny's letter, but `deny` moves off it in the same map.
-      expect(resolve({ approve: "n", deny: "4" }).issues).toEqual([]);
+      expect(resolve({ approve: "n", deny: "q" }).issues).toEqual([]);
     });
   });
 });

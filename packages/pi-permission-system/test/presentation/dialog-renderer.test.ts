@@ -4,6 +4,7 @@ import {
   type DialogBudget,
   renderPromptDialog,
 } from "#src/presentation/dialog-renderer";
+import { modelGeneratedAnnotation } from "#src/presentation/prompt-payload";
 import { makePromptPayload } from "#test/helpers/prompt-details-fixtures";
 
 const WIDE = completeViewBudget(200);
@@ -744,6 +745,190 @@ describe("renderPromptDialog", () => {
           }),
         }),
       ).toEqual(["subagent : unknown", "surface  : read", "value    : /tmp/x"]);
+    });
+  });
+
+  describe("annotations", () => {
+    const request = requestFacts({
+      requester: { agentName: "scout", forwarded: false, sessionId: null },
+      surface: "bash",
+      toolName: "bash",
+      value: "cat /etc/hosts",
+      matchedPattern: "*",
+    });
+    const evidence = [
+      { label: "full command", text: "git push --force", detail: null },
+    ];
+    const base = { kind: "bash" as const, request, evidence };
+
+    /** What the ask renders today, with nothing in the annotations slot. */
+    const WITHOUT_ANNOTATIONS = [
+      "agent        : scout",
+      "tool         : bash",
+      "rule         : *",
+      "command      : cat /etc/hosts",
+      "full command : git push --force",
+    ];
+
+    it("renders byte-identically to today when the slot is empty", () => {
+      const view = renderPromptDialog(
+        makePromptPayload({ ...base, annotations: [] }),
+        WIDE,
+      );
+      expect(view.lines).toEqual(WITHOUT_ANNOTATIONS);
+      expect(view.elided).toBe(false);
+    });
+
+    it("renders an annotation as model-generated, apart from the evidence", () => {
+      const lines = render({
+        ...base,
+        annotations: [modelGeneratedAnnotation("echo", "routine push")],
+      });
+      // The fact column is untouched, so an annotation cannot be mistaken for
+      // (or realign) evidence …
+      expect(lines.slice(0, WITHOUT_ANNOTATIONS.length)).toEqual(
+        WITHOUT_ANNOTATIONS,
+      );
+      // … and the advisory sits below it under its own marked, attributed label.
+      expect(lines.slice(WITHOUT_ANNOTATIONS.length)).toEqual([
+        "model-generated (echo) : routine push",
+      ]);
+    });
+
+    it("never paints an annotation as the flagged element", () => {
+      const view = renderPromptDialog(
+        makePromptPayload({
+          ...base,
+          annotations: [
+            modelGeneratedAnnotation("echo", "runs cat /etc/hosts"),
+          ],
+        }),
+        WIDE,
+        (text) => `<${text}>`,
+      );
+      expect(view.lines[3]).toBe("command      : <cat /etc/hosts>");
+      expect(view.lines.at(-1)).toBe(
+        "model-generated (echo) : runs cat /etc/hosts",
+      );
+    });
+
+    it("is the first thing to give way under the row budget", () => {
+      const view = renderPromptDialog(
+        makePromptPayload({
+          ...base,
+          annotations: [modelGeneratedAnnotation("echo", "routine\npush")],
+        }),
+        { maxRows: 6, fieldMaxWidth: 400, width: 200 },
+      );
+      expect(view.lines).toEqual([...WITHOUT_ANNOTATIONS, "\u2026"]);
+      expect(view.elided).toBe(true);
+    });
+
+    it("caps an annotation at the field width like any other fact", () => {
+      const view = renderPromptDialog(
+        makePromptPayload({
+          ...base,
+          annotations: [modelGeneratedAnnotation("echo", "a".repeat(30))],
+        }),
+        { maxRows: 24, fieldMaxWidth: 20, width: 200 },
+      );
+      expect(view.lines.at(-1)).toBe(
+        `model-generated (echo) : ${"a".repeat(20)}\u2026`,
+      );
+      expect(view.elided).toBe(true);
+    });
+
+    it("drops the annotation before the evidence when both contend", () => {
+      // At 7 rows the evidence still fits (core 4 + evidence 1), so a block
+      // order that dropped the advisory first would keep it and lose the
+      // evidence instead.
+      const view = renderPromptDialog(
+        makePromptPayload({
+          ...base,
+          annotations: [modelGeneratedAnnotation("echo", "one\ntwo\nthree")],
+        }),
+        { maxRows: 7, fieldMaxWidth: 400, width: 200 },
+      );
+      expect(view.lines).toEqual([...WITHOUT_ANNOTATIONS, "\u2026"]);
+      expect(view.elided).toBe(true);
+    });
+
+    it("continues a multi-line annotation under its own label column", () => {
+      const view = renderPromptDialog(
+        makePromptPayload({
+          ...base,
+          annotations: [modelGeneratedAnnotation("echo", "routine\npush")],
+        }),
+        WIDE,
+      );
+      expect(view.lines).toEqual([
+        ...WITHOUT_ANNOTATIONS,
+        "model-generated (echo) : routine",
+        `${" ".repeat("model-generated (echo)".length + 3)}push`,
+      ]);
+      expect(view.elided).toBe(false);
+    });
+
+    it("drops an annotation that carries no text", () => {
+      const empty = render({
+        ...base,
+        annotations: [modelGeneratedAnnotation("echo", "")],
+      });
+      const blank = renderPromptDialog(
+        makePromptPayload({
+          ...base,
+          annotations: [modelGeneratedAnnotation("echo", " \n ")],
+        }),
+        WIDE,
+      );
+      expect(empty).toEqual(WITHOUT_ANNOTATIONS);
+      expect(blank.lines).toEqual(WITHOUT_ANNOTATIONS);
+      expect(blank.elided).toBe(false);
+    });
+
+    it("keeps a hostile source on one row inside the width cap", () => {
+      const view = renderPromptDialog(
+        makePromptPayload({
+          ...base,
+          annotations: [
+            modelGeneratedAnnotation(
+              `ev\x1b[31m\nname${"x".repeat(300)}`,
+              "routine push",
+            ),
+          ],
+        }),
+        WIDE,
+      );
+      expect(view.lines.slice(0, WITHOUT_ANNOTATIONS.length)).toEqual(
+        WITHOUT_ANNOTATIONS,
+      );
+      expect(view.lines).toHaveLength(WITHOUT_ANNOTATIONS.length + 1);
+      const advisory = view.lines.at(-1) ?? "";
+      expect(advisory).not.toContain("\x1b");
+      expect(advisory).toMatch(
+        /^model-generated \(ev namex*\u2026?\) : routine push$/,
+      );
+      expect(advisory.length).toBeLessThan(120);
+      expect(view.lines.every((line) => line.length <= 200)).toBe(true);
+      expect(view.elided).toBe(false);
+    });
+
+    it("strips whole legacy and C1 escape sequences from a hostile source", () => {
+      const view = renderPromptDialog(
+        makePromptPayload({
+          ...base,
+          annotations: [
+            modelGeneratedAnnotation("ev\u001b(Bname\u009b31m", "routine push"),
+          ],
+        }),
+        WIDE,
+      );
+      const advisory = view.lines.at(-1) ?? "";
+      expect(advisory).toBe("model-generated (evname) : routine push");
+      expect(advisory).not.toContain("\u001b");
+      expect(advisory).not.toContain("\u009b");
+      expect(advisory).not.toContain("Bname");
+      expect(advisory).not.toContain("31m");
     });
   });
 });

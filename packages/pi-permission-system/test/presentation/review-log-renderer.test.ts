@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { PromptPayload } from "#src/presentation/prompt-payload";
+import {
+  modelGeneratedAnnotation,
+  type PromptPayload,
+} from "#src/presentation/prompt-payload";
 import { renderReviewLogFacts } from "#src/presentation/review-log-renderer";
 import { makePromptPayload } from "#test/helpers/prompt-details-fixtures";
 
@@ -172,19 +175,27 @@ describe("renderReviewLogFacts", () => {
   });
 
   it("persists no evidence and no annotations", () => {
-    expect(
-      renderReviewLogFacts(
-        payload(
-          { surface: "external_directory", matchedPattern: "*" },
-          {
-            evidence: [
-              { label: "working directory", text: "/repo", detail: null },
-              { label: "external path", text: "/etc/hosts", detail: null },
-            ],
-            annotations: [{ source: "judge", text: "looks risky" }],
-          },
-        ),
+    const marker = "ANNOTATION-MARKER";
+    const facts = renderReviewLogFacts(
+      payload(
+        { surface: "external_directory", matchedPattern: "*" },
+        {
+          evidence: [
+            { label: "working directory", text: "/repo", detail: null },
+            { label: "external path", text: "/etc/hosts", detail: null },
+          ],
+          annotations: [
+            modelGeneratedAnnotation(marker, `${marker}: looks risky`),
+          ],
+        },
       ),
-    ).toEqual({ surface: "external_directory", matchedPattern: "*" });
+    );
+    expect(facts).toEqual({
+      surface: "external_directory",
+      matchedPattern: "*",
+    });
+    // A populated slot, not a default-empty one: a renderer that folded an
+    // annotation into a persisted field would carry the marker out here.
+    expect(JSON.stringify(facts)).not.toContain(marker);
   });
 });

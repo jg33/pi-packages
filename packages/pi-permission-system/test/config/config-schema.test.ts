@@ -484,6 +484,16 @@ describe("array size bounds", () => {
       },
     ],
     [
+      "annotatorChain",
+      {
+        schema: unifiedConfigSchema,
+        build: (entries) => ({ annotatorChain: entries }),
+        validFill: "x",
+        invalidFill: "",
+        path: ["annotatorChain"],
+      },
+    ],
+    [
       "promptNotifications",
       {
         schema: unifiedConfigSchema,
@@ -731,5 +741,16 @@ describe("committed schemas/permissions.schema.json is in sync", () => {
       readFileSync(committedPath, "utf-8"),
     ) as unknown;
     expect(committed).toEqual(buildPermissionsJsonSchema());
+  });
+});
+
+describe("annotatorTimeoutMs", () => {
+  it("accepts a positive integer and rejects zero", () => {
+    expect(
+      unifiedConfigSchema.safeParse({ annotatorTimeoutMs: 1500 }).success,
+    ).toBe(true);
+    expect(
+      unifiedConfigSchema.safeParse({ annotatorTimeoutMs: 0 }).success,
+    ).toBe(false);
   });
 });

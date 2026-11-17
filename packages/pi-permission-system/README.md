@@ -65,8 +65,11 @@ All permissions use one of three states:
 | `ask`   | Prompts the user for confirmation via UI |
 
 When the dialog prompts, you can approve once or approve a pattern for the rest of the session.
-In an interactive TUI session the prompt is an inline keybind dialog — `y` approve, `s` approve for this session, `n` deny, `r` deny with a reason — where each hotkey arms and a second press confirms (configurable via `doublePressToConfirm`).
-The hotkeys themselves are remappable through `permissionDialogKeys`, which matters if you type with an input method editor: composition mode swallows letter keys before they reach the terminal, and digits do not.
+In an interactive TUI session the prompt is an inline dialog whose options are numbered by position — `❯ 1. allow`, `2. allow for all agents`, `3. deny` — with `b`'s both-directions grant numbered into that order whenever the ask offers it, and each choice arms on the first press and confirms on the second (configurable via `doublePressToConfirm`).
+The letters `y` / `s` / `b` / `n` keep working: the row prints its position number instead of the bound letter — herdr's scrape pattern needs a digit immediately after the pointer, so a `1/y.` prefix would match nothing — and the configured letter remains a working alias.
+The numbers matter because they are what an external surface can scrape: herdr's Asks panel renders each numbered row as a button and answers by sending that digit, then `enter` — and digits are unaffected by input-method composition mode, which swallows letter keys.
+That covers every decision: the dialog has no row that needs a typed answer, so a digit press and `enter` answer any of them.
+Digits `1`–`9` are therefore reserved in `permissionDialogKeys` and cannot be remapped: the rendered number and the action it selects must never disagree, or a button labelled "Yes" could deny.
 Set `promptNotifications` (for example `["bell"]`) and the dialog also rings the terminal as it opens, so a session waiting on you in another tab or pane gets flagged.
 For an unattended run, set `promptTimeoutMs` and a prompt nobody answers within that window is denied, with the agent told nobody answered; by default a prompt waits indefinitely, and pressing any key stops the clock ([details](docs/configuration.md#unanswered-prompts)).
 A file-access ask that proves a single direction offers `b` as well, granting the session both directions instead of only the one the gate proved.
@@ -144,6 +147,10 @@ The optional `authorizerChain` field names registered case-by-case decision link
 A downstream extension registers a link via `getPermissionsService(sessionId).registerAuthorizer(name, authorize)`; it decides nothing until you name it here (opt-in), config order fixes the chain order, and the chain owner caps any link's `allow` on the `external_directory`/`path` surface families to keep it within your policy, except on a bash ask whose flagged paths name nothing on disk — see [docs/configuration.md](docs/configuration.md#authorizer-chain--case-by-case-decision-links).
 A subagent's ask is reviewed by the chain of the session serving it, one hop up, rather than inside the subagent — see the same section.
 [`@gotgenes/pi-permission-model-judge`](https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-model-judge) is a first-party reference implementation of such a link — a deny-first reviewer that auto-denies mistyped out-of-directory paths.
+
+The optional `annotatorChain` field names registered **prompt annotators** — downstream functions that return advisory text, such as a plain-language explanation of the command.
+A downstream extension registers one via `getPermissionsService(sessionId).registerAnnotator(name, annotator)`; registration alone shows nothing (opt-in), the prompt labels the text `model-generated (<name>)` below the evidence, and an annotation can never allow, deny, defer, or suppress the ask.
+An annotator that declines, throws, or misses the shared `annotatorTimeoutMs` deadline adds nothing, and a configured name with no registration is skipped with one warning — see [docs/configuration.md](docs/configuration.md#prompt-annotations).
 
 For the full reference — all surfaces, runtime knobs, per-agent overrides, merge semantics, and common recipes — see [docs/configuration.md](docs/configuration.md).
 

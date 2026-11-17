@@ -23,6 +23,15 @@ export const PERMISSIONS_SCHEMA_URL =
  */
 const MAX_CONFIG_ARRAY_ITEMS = 1000;
 
+/**
+ * How long a prompt waits for `annotatorChain` when `annotatorTimeoutMs` is not
+ * configured. Lives here, not in the runner: a config default belongs to the
+ * config layer, and the generated schema must stay importable by the generator
+ * (`node --experimental-strip-types` cannot resolve this package's
+ * extensionless `#src/*` subpaths).
+ */
+export const DEFAULT_ANNOTATOR_TIMEOUT_MS = 1500;
+
 const permissionStateSchema = z
   .union([
     z.literal("allow").meta({
@@ -279,21 +288,22 @@ const dialogKeysSchema = z
       description: "Key that denies the pending call. Default: n.",
     }),
     denyWithReason: z.string().optional().meta({
-      description: "Key that denies and opens the reason editor. Default: r.",
+      deprecated: true,
+      description:
+        "Accepted for config compatibility, and binds nothing: the one-step TUI dialog has no deny-with-a-reason row, so this key selects no option. Default: r.",
     }),
   })
   .meta({
     description:
-      "Remaps the inline TUI permission dialog's decision hotkeys. Each value is one printable character.",
+      "Remaps the inline TUI permission dialog's decision hotkeys. Each value is one printable character. Digits 1–9 are reserved for the numbered option rows.",
     markdownDescription:
-      "Remaps the inline **TUI** permission dialog's decision hotkeys, which default to `y` / `s` / `b` / `n` / `r`.\n\nEach value is a single printable character — a lowercase letter, a digit, or a symbol. Digits are the usual choice for input-method-editor (IME) users, whose composition mode swallows letter keys before they reach the terminal.\n\n`j` and `k` are reserved for moving the dialog's highlight, uppercase is rejected (pi lowercases a key identifier, so `\"Y\"` would answer to `y`), and two decisions may not share a character. An entry that breaks one of those rules is ignored with a warning and its decision keeps its default letter.\n\nA project config replaces a global one's map entirely rather than merging entry by entry.",
+      "Remaps the inline **TUI** permission dialog's decision hotkeys, which default to `y` / `s` / `b` / `n` / `r`.\n\nEach value is a single printable character — a lowercase letter, the digit `0`, or a symbol. Digits `1`–`9` are reserved for the dialog's numbered option rows: every row prints its position number, and the rendered number and the action a digit selects must never disagree, so an entry naming a digit is refused with a message and its decision keeps its default letter.\n\n`j` and `k` are reserved for moving the dialog's highlight, uppercase is rejected (pi lowercases a key identifier, so `\"Y\"` would answer to `y`), and two decisions may not share a character. An entry that breaks one of those rules is ignored with a warning and its decision keeps its default letter.\n\nA project config replaces a global one's map entirely rather than merging entry by entry.",
     examples: [
       {
-        approve: "1",
-        approveSession: "2",
-        approveSessionBoth: "3",
-        deny: "4",
-        denyWithReason: "5",
+        approve: "a",
+        approveSession: "f",
+        approveSessionBoth: "w",
+        deny: "d",
       },
     ],
   });
@@ -498,9 +508,9 @@ export const unifiedConfigSchema = z
     }),
     promptMaxRows: z.number().int().min(1).optional().meta({
       description:
-        "Maximum rows a permission prompt renders before eliding its evidence. Omit to use the default (24).",
+        "Maximum rows a permission prompt renders before eliding annotations, then evidence. Omit to use the default (24).",
       markdownDescription:
-        "Maximum rows a permission prompt renders before eliding its evidence.\n\nOmit to use the default (24). The request's own facts — the requesting agent, the tool, the matched rule, the decision-relevant value — are never elided by this budget; what gives way is the supporting evidence, and `Ctrl+O` expands the prompt to the complete request.",
+        "Maximum rows a permission prompt renders before eliding its annotations, then its evidence.\n\nOmit to use the default (24). The request's own facts — the requesting agent, the tool, the matched rule, the decision-relevant value — are never elided by this budget; what gives way first is the model-generated annotations, then the supporting evidence, and `Ctrl+O` expands the prompt to the complete request.",
       default: 24,
     }),
     promptFieldMaxWidth: z.number().int().min(1).optional().meta({
@@ -552,6 +562,27 @@ export const unifiedConfigSchema = z
         markdownDescription:
           "Ordered names of registered **live-authority chain links** (e.g. a model judge) to consult before the terminal authorizer (the human, or the subagent-forwarding / headless-deny fallback).\n\nA link reviews an `ask` and returns `allow` / `deny` (with an optional teaching reason) / `defer` to the next link. Three invariants govern the chain:\n\n- **Config order wins.** The order here \u2014 not the order extensions register in \u2014 fixes the security-relevant chain order.\n- **Fail-safe skip.** A name with no registered link is skipped with a warning; the `ask` still reaches the terminal (more prompting, never less).\n- **Opt-in activation.** Installing a judge extension grants it no authority; a link decides nothing until you name it here.\n\nThe chain owner caps every verdict with a bounded-delegation checkpoint: a link's `allow` on an excluded surface (`external_directory` or `path`) is downgraded to `defer`, so a link cannot exceed your policy. The one exception is per ask: a link's `allow` on a bash `external_directory` ask whose every flagged path names nothing on disk below the filesystem root (and is not a proven write) is honored, and the review log records `authorizer_allow_licensed`.\n\nDefaults to an empty list (no links).",
         default: [],
+      }),
+    annotatorChain: z
+      .array(z.string().min(1))
+      .max(MAX_CONFIG_ARRAY_ITEMS)
+      .optional()
+      .meta({
+        description:
+          "Ordered names of registered prompt annotators to consult when a permission prompt is about to be shown. Config order fixes the order annotations appear in; an unregistered name is skipped fail-safe (the prompt is shown unchanged); an annotator shows nothing until it is named here. An annotation is advisory, always labelled model-generated, and never decides the ask.",
+        markdownDescription:
+          "Ordered names of registered **prompt annotators** (e.g. a model that explains the command) to consult when a permission prompt is about to be shown.\n\nAn annotator returns advisory text that the prompt shows under a `model-generated (<name>)` label, below the evidence. Three invariants govern it:\n\n- **Advisory only.** An annotation can never allow, deny, defer, or suppress the ask; the prompt and its decision are unchanged. It is not shown to the agent, written to the review log, or broadcast on `permissions:ui_prompt`.\n- **Fail-safe.** A name with no registered annotator is skipped with a warning, and an annotator that declines, throws, or has not answered within `annotatorTimeoutMs` adds nothing: the prompt is shown exactly as it would be without it.\n- **Opt-in activation.** Installing an annotator extension shows nothing; an annotator runs only when you name it here, in this order.\n\nAnnotators run on the session that shows the prompt, so a subagent's forwarded ask is annotated by the session that serves it.\n\nDefaults to an empty list (no annotators).",
+        default: [],
+      }),
+    annotatorTimeoutMs: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .meta({
+        description: `How long a permission prompt waits for its annotators before it is shown without the ones still pending, in milliseconds. Omit to use the default (${DEFAULT_ANNOTATOR_TIMEOUT_MS}). The deadline covers the whole annotator chain, not each annotator.`,
+        markdownDescription: `How long a permission prompt waits for its annotators before it is shown without the ones still pending, in milliseconds.\n\nOmit to use the default (\`${DEFAULT_ANNOTATOR_TIMEOUT_MS}\`). The deadline covers the whole \`annotatorChain\` \u2014 annotators run together \u2014 so the prompt is delayed by at most this long, plus a 250 ms guard grace (\`annotatorTimeoutMs + 250 ms\` in the worst case, for an implementation that ignores its own deadline), and only when an annotator is configured and registered. An annotator that has not answered by then is abandoned and its late answer is discarded. This is unrelated to \`promptTimeoutMs\`, which denies an unanswered prompt.`,
+        default: DEFAULT_ANNOTATOR_TIMEOUT_MS,
       }),
     permission: permissionSchema.optional(),
     shellTools: shellToolsSchema.optional(),

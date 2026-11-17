@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import type { DebugReviewLogger } from "#src/logging/session-logger";
 import { createPermissionRequestId } from "#src/permission-request-id";
 import type { PromptPayload } from "#src/presentation/prompt-payload";
@@ -44,6 +46,9 @@ import type { PromptPermissionDetails } from "./permission-prompter";
 import type { SubagentSessionRegistry } from "./subagent-registry";
 
 // ── Module-private helpers ────────────────────────────────────────────────
+
+/** What the child's pane and OSC 7501 status report while the forward waits. */
+const WAITING_FOR_PARENT_APPROVAL = "Waiting for parent session approval";
 
 function getContextSystemPrompt(ctx: ForwarderContext): string | undefined {
   const getSystemPrompt = toRecord(ctx).getSystemPrompt;
@@ -291,13 +296,65 @@ export class ParentAuthorizer implements TerminalAuthorizer {
       return abandon("The forwarded permission request could not be written");
     }
 
-    return this.pollForForwardedResponse(
-      location,
-      request,
-      requestPath,
-      responsePath,
-      target,
-    );
+    // ForwarderContext narrows ui to select/input; production passes the full ExtensionContext.
+    const ui = ctx.ui as Partial<Pick<ExtensionUIContext, "custom">>;
+    let restore: (() => void) | undefined;
+    if (ctx.hasUI && ui.custom) {
+      // The poll opens no dialog, so without this the pane keeps saying
+      // `working`. The blocked option alone is not enough: children run pi
+      // 1.2.0, whose showExtensionCustom ignores options.blocked (honoured for
+      // select/input/editor only; the custom option landed in pi 1.5.0, #11428),
+      // so the factory sets OSC 7501 directly.
+      const mountFailed = (error: unknown) => {
+        logPermissionForwardingWarning(
+          this.logger,
+          "Failed to show the waiting-for-parent-approval status line",
+          error,
+        );
+      };
+      // Mount failures must neither reject unhandled nor stop the wait.
+      try {
+        void ui
+          .custom<undefined>(
+            (tui, _theme, _keybindings, done) => {
+              tui.terminal.setProgramStatus({
+                state: "blocked",
+                kind: "permission",
+                message: WAITING_FOR_PARENT_APPROVAL,
+                app: "pi",
+              });
+              restore = () => {
+                done(undefined);
+                tui.terminal.setProgramStatus({ state: "working" });
+              };
+              return new Text(
+                `${WAITING_FOR_PARENT_APPROVAL} — the parent session decides.`,
+              );
+            },
+            {
+              overlay: false,
+              blocked: {
+                kind: "permission",
+                message: WAITING_FOR_PARENT_APPROVAL,
+              },
+            },
+          )
+          .catch(mountFailed);
+      } catch (error) {
+        mountFailed(error);
+      }
+    }
+    try {
+      return await this.pollForForwardedResponse(
+        location,
+        request,
+        requestPath,
+        responsePath,
+        target,
+      );
+    } finally {
+      restore?.();
+    }
   }
 
   private buildForwardedRequest(

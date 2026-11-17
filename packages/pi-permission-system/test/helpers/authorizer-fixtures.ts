@@ -20,6 +20,7 @@ import type { PermissionPrompterApi } from "#src/authority/permission-prompter";
 import { ServingSessionRegistry } from "#src/authority/serving-registry";
 import type { SubagentDetector } from "#src/authority/subagent-detection";
 import type { PermissionQuery } from "#src/service";
+import { passThroughAnnotator } from "./annotator-fixtures";
 import { makeAuthorizerLog } from "./authorizer-log-fixtures";
 import { DECIDED_BY_HUMAN } from "./decision-fixtures";
 import { makePromptPreferences } from "./prompt-view-fixtures";
@@ -151,5 +152,7 @@ export function makeAuthorizerSelectionDeps(
       overrides.authorizerRegistry ?? new AuthorizerRegistry(),
     getAuthorizerChain: overrides.getAuthorizerChain ?? (() => []),
     chainAudit: overrides.chainAudit ?? makeChainAudit(),
+    annotator: overrides.annotator ?? passThroughAnnotator,
+    getAnnotatorTimeoutMs: overrides.getAnnotatorTimeoutMs ?? (() => 1000),
   };
 }

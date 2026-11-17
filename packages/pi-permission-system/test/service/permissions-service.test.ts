@@ -3,6 +3,10 @@ import type { AccessIntent } from "#src/access-intent/access-intent";
 import type { AuthorizerRegistrar } from "#src/authority/authorizer-registry";
 import { posixPathFlavor } from "#src/path/path-flavor";
 import { PathNormalizer } from "#src/path/path-normalizer";
+import {
+  type AnnotatorRegistrar,
+  AnnotatorRegistry,
+} from "#src/presentation/annotator-registry";
 import { LocalPermissionsService } from "#src/service/permissions-service";
 import {
   type ToolAccessExtractorLookup,
@@ -103,6 +107,7 @@ function makeService(overrides?: {
   accessExtractorRegistry?: ToolAccessExtractorRegistrar &
     ToolAccessExtractorLookup;
   authorizerRegistry?: AuthorizerRegistrar;
+  annotatorRegistry?: AnnotatorRegistrar;
 }) {
   const resolver = overrides?.resolver ?? makeResolver();
   // The published service always answers against the parent session's cwd.
@@ -113,12 +118,15 @@ function makeService(overrides?: {
     overrides?.accessExtractorRegistry ?? makeAccessExtractorRegistry();
   const authorizerRegistry =
     overrides?.authorizerRegistry ?? makeAuthorizerRegistry();
+  const annotatorRegistry =
+    overrides?.annotatorRegistry ?? new AnnotatorRegistry();
   const service = new LocalPermissionsService(
     resolver,
     session,
     formatterRegistry,
     accessExtractorRegistry,
     authorizerRegistry,
+    annotatorRegistry,
   );
   return {
     service,
@@ -126,6 +134,7 @@ function makeService(overrides?: {
     formatterRegistry,
     accessExtractorRegistry,
     authorizerRegistry,
+    annotatorRegistry,
   };
 }
 
@@ -366,5 +375,23 @@ describe("registerAuthorizer", () => {
       authorize,
     );
     expect(result).toBe(unsub);
+  });
+});
+
+describe("registerAnnotator", () => {
+  it("registers with the annotator registry and returns its disposer", () => {
+    const annotatorRegistry = new AnnotatorRegistry();
+    const { service } = makeService({ annotatorRegistry });
+    const annotator = () => "note";
+    const dispose = service.registerAnnotator("echo", annotator);
+    expect(annotatorRegistry.get("echo")).toBe(annotator);
+    dispose();
+    expect(annotatorRegistry.get("echo")).toBeUndefined();
+  });
+
+  it("throws on a duplicate name", () => {
+    const { service } = makeService();
+    service.registerAnnotator("echo", () => "a");
+    expect(() => service.registerAnnotator("echo", () => "b")).toThrow("echo");
   });
 });

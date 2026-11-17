@@ -19,6 +19,7 @@
  */
 
 import type { Authorizer } from "#src/authority/authorizer";
+import type { Annotator } from "#src/presentation/annotator-registry";
 import type { ToolAccessExtractor } from "#src/tool-input/tool-access-extractor-registry";
 import type { ToolInputFormatter } from "#src/tool-input/tool-input-formatter-registry";
 import type { PermissionCheckResult, PermissionState } from "./types";
@@ -27,6 +28,10 @@ export type {
   Authorizer,
   AuthorizerVerdict,
 } from "#src/authority/authorizer";
+export type {
+  Annotator,
+  AnnotatorInput,
+} from "#src/presentation/annotator-registry";
 
 /**
  * The narrow review-log seam handed to a chain link at `authorize` time
@@ -243,6 +248,35 @@ export interface PermissionsService extends PermissionQuery {
     name: string,
     authorize: Authorizer["authorize"],
   ): () => void;
+
+  /**
+   * Register a named prompt annotator (ADR 0011 §8).
+   *
+   * An annotator returns advisory text for the human deciding an `ask`, or
+   * `undefined` to decline. The prompt shows it labelled `model-generated
+   * (<name>)`; the label and the attribution are stamped by this package, never
+   * by the annotator. The return type has no way to spell `allow`, `deny`,
+   * `defer`, or "skip the prompt", so an annotator cannot influence the
+   * decision.
+   *
+   * Registration alone shows nothing: the annotator runs only when the operator
+   * names it in the `annotatorChain` config (opt-in activation), in config
+   * order. A configured name with no registration is skipped, and the prompt is
+   * shown unchanged — as it is when the annotator declines, throws, or has not
+   * answered within `annotatorTimeoutMs`. An annotation is never shown to the
+   * agent, written to the review log, or broadcast on `permissions:ui_prompt`.
+   *
+   * It runs only on the node that shows the prompt, so like
+   * {@link registerAuthorizer} it has no reader. Only one annotator may be
+   * registered per name — a second call throws. The returned disposer
+   * unregisters it.
+   *
+   * @param name      - Operator-facing name referenced from `annotatorChain`.
+   * @param annotator - Receives `{ payload, signal }`; return the text to show,
+   *                    or `undefined` to decline. `signal` aborts at the
+   *                    deadline.
+   */
+  registerAnnotator(name: string, annotator: Annotator): () => void;
 }
 
 /**

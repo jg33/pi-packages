@@ -51,7 +51,13 @@ import { pathFlavorForPlatform } from "#src/path/path-flavor";
 import { PermissionManager } from "#src/policy/permission-manager";
 import { PermissionResolver } from "#src/policy/permission-resolver";
 import { ResolverServingPolicy } from "#src/policy/serving-policy";
+import {
+  AnnotationRunner,
+  DEFAULT_ANNOTATOR_TIMEOUT_MS,
+} from "#src/presentation/annotation-runner";
+import { AnnotatorRegistry } from "#src/presentation/annotator-registry";
 import { resolveRenderBudget } from "#src/presentation/dialog-renderer";
+import { registerPendingCommandAnnotator } from "#src/presentation/pending-command-annotator";
 import { LocalPermissionsService } from "#src/service/permissions-service";
 import { PermissionServiceLifecycle } from "#src/service/service-lifecycle";
 import { PermissionSession } from "#src/session/permission-session";
@@ -97,6 +103,14 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
   // AuthorizerSelection's chain resolution, so a registration is visible to
   // composition.
   const authorizerRegistry = new AuthorizerRegistry();
+  // One registry instance backs both the registerAnnotator service surface and
+  // the AnnotationRunner's chain resolution, so a registration is visible to
+  // composition.
+  const annotatorRegistry = new AnnotatorRegistry();
+  // One reader for the deadline, so the runner's own bound and the terminal's
+  // containment ceiling cannot disagree.
+  const annotatorTimeoutMs = (): number =>
+    configStore.current().annotatorTimeoutMs ?? DEFAULT_ANNOTATOR_TIMEOUT_MS;
 
   // Both `configStore` and `session` are forward-declared so the logger's
   // lazy thunks can close over them without a cast or null-init holder.
@@ -187,6 +201,18 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     // operator once per name — the ask is decided without the judge they
     // asked for, and the review log alone never said so (#861).
     chainAudit: new AuthorizerChainAudit(logger),
+    // Runs only inside the local terminal, i.e. on the node that shows the
+    // prompt (ADR 0011 §8); resolved in config order, read live per ask. `log`
+    // is the session logger, not its raw writer: the writer *returns* an IO
+    // failure instead of throwing, so wiring it directly would lose the audit
+    // record and its warning silently.
+    annotator: new AnnotationRunner({
+      registry: annotatorRegistry,
+      getChain: () => configStore.current().annotatorChain ?? [],
+      getTimeoutMs: annotatorTimeoutMs,
+      log: logger,
+    }),
+    getAnnotatorTimeoutMs: annotatorTimeoutMs,
   });
 
   // Resolver composes the manager + session ruleset and owns the
@@ -273,7 +299,15 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
       authorizerSelection,
       logger,
     ),
+    annotatorRegistry,
   );
+
+  // The one built-in annotator (asks-parity plan item 5): registered at
+  // composition through the same `registerAnnotator` surface a sibling
+  // extension uses, so it resolves against this factory's registry. It runs
+  // only when the operator names it in `annotatorChain` — registration alone
+  // shows nothing (ADR 0011 §8).
+  registerPendingCommandAnnotator(permissionsService);
 
   // Subscribe to @gotgenes/pi-subagents' child lifecycle events so child
   // sessions register/unregister without the core calling us (ADR 0002), and

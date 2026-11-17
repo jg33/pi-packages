@@ -292,6 +292,42 @@ describe("isSubagentExecutionContext — env hint detection", () => {
     ).toBe(true);
   });
 
+  test("returns false when the convention marker names this session itself (the root's claim)", () => {
+    // subagent-forwarding writes the root's own id into the env so children
+    // inherit it; honouring it would mark every root as its own child (#907).
+    vi.stubEnv("PI_SUBAGENT_PARENT_SESSION", "root-session");
+    expect(
+      isSubagentExecutionContext(
+        makeCtx(null, "root-session"),
+        "/sessions/subagents",
+        posixPathFlavor,
+      ),
+    ).toBe(false);
+  });
+
+  test("returns false when the router marker names this session itself", () => {
+    vi.stubEnv("PI_AGENT_ROUTER_PARENT_SESSION_ID", "root-session");
+    expect(
+      isSubagentExecutionContext(
+        makeCtx(null, "root-session"),
+        "/sessions/subagents",
+        posixPathFlavor,
+      ),
+    ).toBe(false);
+  });
+
+  test("returns true when a self-naming marker sits beside another subagent hint", () => {
+    vi.stubEnv("PI_SUBAGENT_PARENT_SESSION", "root-session");
+    vi.stubEnv("PI_SUBAGENT_NAME", "worker");
+    expect(
+      isSubagentExecutionContext(
+        makeCtx(null, "root-session"),
+        "/sessions/subagents",
+        posixPathFlavor,
+      ),
+    ).toBe(true);
+  });
+
   test("covers all declared SUBAGENT_ENV_HINT_KEYS", () => {
     // Verify the keys we test match what the module declares.
     expect(SUBAGENT_ENV_HINT_KEYS).toContain("PI_IS_SUBAGENT");
