@@ -342,7 +342,7 @@ registerAnnotator(
 Offers a named prompt annotator.
 It receives `{ payload, signal, requestId, log }` and returns the advisory text to show, or `undefined` to decline.
 `requestId` is the gate's id for this ask and `log.review(event, details)` writes into the same permission review log the authorizer chain uses, so a model-backed annotator can leave an auditable trail of what it did and why it fell back; a throwing sink cannot cost the answer.
-The prompt shows it labelled `model-generated (<name>)`; the label and attribution are stamped by this package.
+The prompt shows it below the evidence under a short label — `model-generated (<name>)` unless this package knows a friendlier word for that name; the marking and attribution are stamped by this package.
 The return type cannot express a verdict, so an annotator cannot influence the decision.
 
 Registration alone shows nothing: the operator must name the annotator in `annotatorChain`.

@@ -1363,7 +1363,7 @@ describe("service and annotator chain share one annotator registry", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("registers exactly one built-in annotator at composition", () => {
+  it("registers the built-in annotators at composition", () => {
     const register = vi.spyOn(AnnotatorRegistry.prototype, "register");
     writeGlobalConfig({ permission: { "*": "ask" } });
 
@@ -1371,11 +1371,15 @@ describe("service and annotator chain share one annotator registry", () => {
       const pi = makeFakePi({ toolNames: ["demo"] });
       piPermissionSystemExtension(pi as unknown as ExtensionAPI);
 
-      // One annotator exists in the whole package: the built-in, registered
-      // under the name the operator must put in annotatorChain to run it.
-      expect(register).toHaveBeenCalledTimes(1);
+      // The two built-ins, each registered under the name the operator must
+      // put in annotatorChain to run it.
+      expect(register).toHaveBeenCalledTimes(2);
       expect(register).toHaveBeenCalledWith(
         "pending-command",
+        expect.any(Function),
+      );
+      expect(register).toHaveBeenCalledWith(
+        "jev-verdict",
         expect.any(Function),
       );
     } finally {

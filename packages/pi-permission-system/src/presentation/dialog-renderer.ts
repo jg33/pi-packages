@@ -6,7 +6,7 @@ import {
 } from "./fact-vocabulary";
 import { fitLinesToWidth } from "./line-fitting";
 import { annotationSourceLabel } from "./printable-text";
-import type { PromptPayload } from "./prompt-payload";
+import type { PromptAnnotation, PromptPayload } from "./prompt-payload";
 
 /**
  * Render a {@link PromptPayload} for a human deciding an ask (ADR 0011 §5).
@@ -29,8 +29,13 @@ export function renderPromptDialog(
   budget: DialogBudget,
   paint: HighlightPaint = plainText,
 ): DialogView {
-  const core = coreFacts(payload).map((fact) =>
-    capField(fact, budget.fieldMaxWidth),
+  const request = requestFacts(payload, budget.fieldMaxWidth);
+  // The request line capped its own value; capping the joined line as well
+  // would spend the budget on the one-word facets in front of it.
+  const core = request.facts.map((fact) =>
+    fact.label === REQUEST_LABEL
+      ? { ...fact, clipped: false }
+      : capField(fact, budget.fieldMaxWidth),
   );
   const evidence = evidenceFacts(payload).map((fact) =>
     capField(fact, budget.fieldMaxWidth),
@@ -59,6 +64,7 @@ export function renderPromptDialog(
     lines: fitted.lines,
     elided:
       fitted.dropped ||
+      request.clipped ||
       [...core, ...evidence, ...annotations].some((fact) => fact.clipped),
   };
 }
@@ -214,35 +220,32 @@ const ELISION_MARKER = "\u2026";
 const ELISION_MARKER_ROWS = 1;
 
 /**
- * The invariant core (ADR 0011 §3), in reading order: who is asking, what they
- * called, what gated it, the decision-relevant value, why a path ask landed on
- * its direction, and what will actually run.
+ * The invariant core (ADR 0011 §3), in reading order: who is asking, what the
+ * ask is — tool, surface, rule and the decision-relevant value as one line —
+ * then the sentences that explain it.
+ *
+ * One line for the facets rather than four: `tool`, `surface`, `rule` and the
+ * value are four words about one request, and stacking them spent four rows to
+ * say one thing (#PPB-8). What survives as its own row is what reads as a
+ * sentence — why a path ask landed on its direction, what will actually run,
+ * and where a substitution runs.
  */
-function coreFacts(payload: PromptPayload): Fact[] {
+function requestFacts(
+  payload: PromptPayload,
+  fieldMaxWidth: number,
+): { facts: Fact[]; clipped: boolean } {
   const { request } = payload;
   const facts: Fact[] = [];
   const requester = requesterFact(payload);
   if (requester) {
     facts.push(requester);
   }
-  if (request.toolName !== null) {
-    facts.push({ label: "tool", text: toolText(payload) });
-  }
-  // The surface is stated already when it *is* the tool name (a bash ask) or
-  // when it is the word the value line is labelled with (a path ask reads
-  // `path : /tmp/x`), so a line for it would repeat rather than add.
-  const label = valueLabel(payload);
-  if (request.surface !== request.toolName && request.surface !== label) {
-    facts.push({ label: "surface", text: request.surface });
-  }
-  if (request.matchedPattern !== null) {
-    facts.push({ label: "rule", text: request.matchedPattern });
+  const line = requestLine(payload, fieldMaxWidth);
+  if (line.text !== null) {
+    facts.push({ label: REQUEST_LABEL, text: line.text });
   }
   if (request.matchedSpelling !== null) {
     facts.push({ label: "matched as", text: request.matchedSpelling });
-  }
-  if (request.value !== "" && request.value !== request.toolName) {
-    facts.push({ label, text: request.value });
   }
   const why = describeDecidingPath(payload);
   if (why !== undefined) {
@@ -255,7 +258,61 @@ function coreFacts(payload: PromptPayload): Fact[] {
   if (context !== undefined) {
     facts.push({ label: "context", text: context });
   }
-  return facts;
+  return { facts, clipped: line.clipped };
+}
+
+/**
+ * The request's own facets, joined: `tool · surface · rule · value`.
+ *
+ * Positional rather than labelled, because the order is the statement — what
+ * was called, what gated it, on what pattern, about what. A facet that says
+ * nothing new is left out: the surface is stated when it *is* the tool name (a
+ * bash ask) or when it is the word the value would be labelled with (a path ask
+ * reads `read · /tmp/x`).
+ */
+function requestLine(
+  payload: PromptPayload,
+  fieldMaxWidth: number,
+): { text: string | null; clipped: boolean } {
+  const { request } = payload;
+  const parts: string[] = [];
+  if (request.toolName !== null) {
+    parts.push(toolText(payload));
+  }
+  const label = valueLabel(payload);
+  if (request.surface !== request.toolName && request.surface !== label) {
+    parts.push(request.surface);
+  }
+  if (request.matchedPattern !== null) {
+    parts.push(request.matchedPattern);
+  }
+  // The cap is the value's own: the facets in front of it are one word each,
+  // and capping the joined line would spend the budget on them and clip the
+  // thing the human is deciding about (#PPB-8).
+  const value = capText(
+    request.value !== "" && request.value !== request.toolName
+      ? request.value
+      : null,
+    fieldMaxWidth,
+  );
+  if (value.text !== null) {
+    parts.push(value.text);
+  }
+  return {
+    text: parts.length === 0 ? null : parts.join(" · "),
+    clipped: value.clipped,
+  };
+}
+
+/** Narrow one field's text to the budget, or pass `null` through. */
+function capText(
+  text: string | null,
+  fieldMaxWidth: number,
+): { text: string | null; clipped: boolean } {
+  if (text === null || text.length <= fieldMaxWidth) {
+    return { text, clipped: false };
+  }
+  return { text: `${text.slice(0, fieldMaxWidth)}\u2026`, clipped: true };
 }
 
 /**
@@ -263,21 +320,36 @@ function coreFacts(payload: PromptPayload): Fact[] {
  *
  * An entry's `detail` rides its own line rather than becoming a second entry,
  * so an elision can never show a path while dropping what it resolves to.
+ *
+ * The working directory is not rendered: the request line already names what
+ * the ask is about, and for an ask about a path inside that directory the two
+ * rows said the same thing twice (#PPB-8). The entry stays in the payload —
+ * this is one render's choice, not the gate's.
  */
 function evidenceFacts(payload: PromptPayload): Fact[] {
-  return payload.evidence.map((entry) => ({
-    label: entry.label,
-    text:
-      entry.detail === null ? entry.text : `${entry.text} → ${entry.detail}`,
-  }));
+  return payload.evidence
+    .filter((entry) => entry.label !== WORKING_DIRECTORY_LABEL)
+    .map((entry) => ({
+      label: entry.label,
+      text:
+        entry.detail === null ? entry.text : `${entry.text} → ${entry.detail}`,
+    }));
 }
 
+/** The label the ask's own facets are joined under. */
+const REQUEST_LABEL = "request";
+
+/** The evidence label this dialog leaves to the request line. */
+const WORKING_DIRECTORY_LABEL = "working directory";
+
 /**
- * The annotations, each under the label that marks it as model-generated and
- * names the annotator that wrote it.
+ * The annotations, each under the label the operator reads it by.
  *
  * Read off the slot rather than composed here: the marking is a property of the
- * payload (ADR 0011 §8), so no annotation can render without it.
+ * payload (ADR 0011 §8), and this only chooses the *word* in front of it. A
+ * model summary is what the human calls an explanation; a chain verdict says
+ * whose verdict it is; any other annotator keeps its registered name rather
+ * than disappearing into a generic label.
  */
 function annotationFacts(payload: PromptPayload): Fact[] {
   return (
@@ -286,10 +358,33 @@ function annotationFacts(payload: PromptPayload): Fact[] {
       // so a blank answer is the same as no answer (fail-safe, ADR 0011 §8).
       .filter((annotation) => annotation.text.trim() !== "")
       .map((annotation) => ({
-        label: `${annotation.marking} (${annotationSource(annotation.source)})`,
+        label: annotationLabel(annotation),
         text: annotation.text,
       }))
   );
+}
+
+/**
+ * The words a human reads for the annotators everything uses.
+ *
+ * Only a name on this map may drop the marking, and only because its own word
+ * says what the text is: a summary is an explanation, a chain verdict is the
+ * chain's. An annotator nobody has named here keeps the payload's marking
+ * verbatim, so an unknown or hostile annotator cannot present its text as
+ * anything but model-generated.
+ */
+const ANNOTATION_LABELS: ReadonlyMap<string, string> = new Map([
+  ["model-summary", "Explanation"],
+  ["jev-verdict", "jev"],
+]);
+
+/** One annotation's display label, from the payload's stamped facts alone. */
+function annotationLabel(annotation: PromptAnnotation): string {
+  const friendly = ANNOTATION_LABELS.get(annotation.source);
+  if (friendly !== undefined) {
+    return friendly;
+  }
+  return `${annotation.marking} (${annotationSource(annotation.source)})`;
 }
 
 /** Longest annotator name a label carries, so the label column stays bounded. */
