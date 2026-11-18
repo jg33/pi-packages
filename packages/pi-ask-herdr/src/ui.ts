@@ -296,6 +296,7 @@ class AskWizard {
     private keybindings: KeybindingsManager,
     private doneCb: (result: AskDetails[] | null) => void,
     private abortSignal?: AbortSignal,
+    private onQuestionChange?: (index: number) => void,
   ) {
     this.states = params.questions.map((q) => ({
       question: q.question.trim(),
@@ -454,6 +455,7 @@ class AskWizard {
       return;
     }
     this.index++;
+    this.onQuestionChange?.(this.index);
     this.child = this.buildChild();
   }
 
@@ -464,6 +466,7 @@ class AskWizard {
     }
     if (this.index === 0) return; // Nowhere to go; help line points at Ctrl+C.
     this.index--;
+    this.onQuestionChange?.(this.index);
     this.child = this.buildChild();
   }
 
@@ -595,6 +598,8 @@ class AskWizard {
 export interface AskWizardHooks {
   /** Called once the wizard is on screen and waiting for the user. */
   onBlocked?: (tui: TUI) => void;
+  /** Called when the wizard shows another question (an answer advances, Esc steps back). */
+  onQuestionChange?: (tui: TUI, index: number) => void;
   /** Called after the wizard returns, whether it was answered or cancelled. */
   onSettled?: (tui: TUI) => void;
 }
@@ -621,6 +626,7 @@ export async function askBatchInTui(
           keybindings,
           done,
           signal,
+          (index) => hooks?.onQuestionChange?.(wizardTui, index),
         );
       },
       // local patch: herdr-agent-ask parses "answer: <q> (a · b)" for clickable buttons; re-apply after package updates.

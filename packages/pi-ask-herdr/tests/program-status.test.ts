@@ -216,3 +216,52 @@ test("a terminal without setProgramStatus cannot break the question", async () =
     "the helper must no-op when the API is absent",
   );
 });
+
+test("showing another question re-reports that question's options", async () => {
+  let tool: any;
+  registerAskuserTool({
+    registerTool(config: any) {
+      tool = config;
+    },
+    events: { emit() {} },
+  } as any);
+
+  const writes: ProgramStatusWrite[] = [];
+  const tui: any = {
+    terminal: makeTerminal(writes, "ok"),
+    requestRender() {},
+  };
+  let wizard: any;
+  const ctx: any = {
+    mode: "tui",
+    sessionManager: { getSessionName: () => "demo-session" },
+    ui: {
+      custom(factory: any) {
+        return new Promise((resolve) => {
+          wizard = factory(tui, {}, { matches: () => false }, resolve);
+        });
+      },
+    },
+  };
+  const params: AskParams = {
+    questions: [
+      { question: "First pick?", type: "select", options: ["a", "b"] },
+      { question: "Second pick?", type: "select", options: ["c", "d"] },
+    ],
+  };
+
+  const promise = tool.execute("call-1", params, undefined, () => {}, ctx);
+  assert.equal(lastWrite(writes)?.message, "answer: First pick? (a · b)");
+
+  wizard.handleInput("1"); // a digit picks the row and advances
+  assert.equal(lastWrite(writes)?.state, "blocked");
+  assert.equal(lastWrite(writes)?.message, "answer: Second pick? (c · d)");
+
+  wizard.handleInput("\x1b"); // Esc steps back
+  assert.equal(lastWrite(writes)?.message, "answer: First pick? (a · b)");
+
+  wizard.handleInput("\x03"); // Ctrl+C cancels the batch
+  const result = await promise;
+  assert.equal(result.details.cancelled, true);
+  assert.equal(lastWrite(writes)?.state, "working");
+});

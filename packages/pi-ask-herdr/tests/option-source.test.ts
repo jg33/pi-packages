@@ -53,7 +53,9 @@ test("select: the source, the transcript line, and the panel answer agree", () =
     status,
     "a select with a custom row always gets a button-bearing answer line",
   );
-  for (const label of labels) {
+  // The wire carries only real labels; the custom row is the consumer's own
+  // ✎-filter's job, not the panel answer line's.
+  for (const label of labels.filter((l) => !/^✎/.test(l))) {
     assert.ok(
       status.message.includes(panelForm(label)),
       `panel answer line shows ${label}: ${status.message}`,
@@ -80,7 +82,9 @@ test("confirm: the source, the transcript line, and the panel answer agree", () 
     status.message.startsWith("answer: "),
     `confirm gets an answer line: ${status.message}`,
   );
-  for (const label of labels) {
+  // The wire carries only real labels; the custom row is the consumer's own
+  // ✎-filter's job, not the panel answer line's.
+  for (const label of labels.filter((l) => !/^✎/.test(l))) {
     assert.ok(
       status.message.includes(panelForm(label)),
       `panel answer line shows ${label}: ${status.message}`,

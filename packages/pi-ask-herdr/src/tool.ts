@@ -133,6 +133,15 @@ export function registerAskuserTool(pi: ExtensionAPI) {
 							console.error("[pi-ask-herdr] failed to report ask blocked status:", err);
 						}
 					},
+					// The wire format carries one question: re-report whenever the wizard shows another,
+					// so the panel's buttons (and its Enter-after-digit check) follow the question on screen.
+					onQuestionChange: (tui, index) => {
+						try {
+							reportAskBlocked(tui.terminal, askBlockedStatus(params, index)?.message);
+						} catch (err) {
+							console.error("[pi-ask-herdr] failed to report ask blocked status:", err);
+						}
+					},
 					onSettled: (tui) => {
 						try {
 							restoreProgramStatus(tui.terminal, ctx.sessionManager.getSessionName());
