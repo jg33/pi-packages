@@ -1,0 +1,8 @@
+{
+  "$schema": "https://raw.githubusercontent.com/gotgenes/pi-packages/main/packages/pi-permission-model-annotator/schemas/model-annotator.schema.json",
+  "provider": "anthropic",
+  "model": "claude-haiku-4-5",
+  "timeoutMs": 4000,
+  "maxCharacters": 220,
+  "includeJevWeights": true
+}

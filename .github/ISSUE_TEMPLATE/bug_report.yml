@@ -14,6 +14,7 @@ body:
         - pi-github-tools
         - pi-nocd
         - pi-permission-model-judge
+        - pi-permission-model-annotator
         - pi-permission-system
         - pi-session-tools
         - pi-subagents

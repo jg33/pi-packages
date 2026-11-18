@@ -501,3 +501,39 @@ describe("AnnotationRunner — isolation is total", () => {
     );
   });
 });
+
+describe("AnnotationRunner — the annotator's audit seam", () => {
+  it("hands each annotator a log that lands in the review log", async () => {
+    const { runner, registry, log } = makeRunner(["audited"]);
+    registry.register("audited", ({ log: annotatorLog }) => {
+      annotatorLog.review("model_annotator.decision", { modelCalled: false });
+      return "audited line";
+    });
+
+    const result = await runner.annotate(makePromptPayload(), "req-1");
+
+    expect(result.annotations).toEqual([
+      modelGeneratedAnnotation("audited", "audited line"),
+    ]);
+    expect(log.review).toHaveBeenCalledWith("model_annotator.decision", {
+      modelCalled: false,
+    });
+  });
+
+  it("keeps the answer when the annotator's own audit write throws", async () => {
+    const { runner, registry, log } = makeRunner(["audited"]);
+    log.review.mockImplementation(() => {
+      throw new Error("sink down");
+    });
+    registry.register("audited", ({ log: annotatorLog }) => {
+      annotatorLog.review("model_annotator.decision", { modelCalled: true });
+      return "still shown";
+    });
+
+    const result = await runner.annotate(makePromptPayload(), "req-1");
+
+    expect(result.annotations).toEqual([
+      modelGeneratedAnnotation("audited", "still shown"),
+    ]);
+  });
+});

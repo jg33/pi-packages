@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/gotgenes/pi-packages/main/packages/pi-permission-model-annotator/schemas/model-annotator.schema.json",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "instructions": {
+      "default": "You explain a pending tool call to a human who is deciding whether to allow it. In one or two short sentences, say what the call does and what it touches, using only the facts given. Say why it might need a human's attention when a matched rule or the scope makes that clear. Never recommend allowing or denying, never restate the whole command, and never invent a fact that is not in the request.",
+      "type": "string",
+      "minLength": 1
+    },
+    "timeoutMs": {
+      "default": 4000,
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "maxCharacters": {
+      "default": 220,
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 500
+    },
+    "includeJevWeights": {
+      "default": true,
+      "type": "boolean"
+    }
+  },
+  "required": ["provider", "model"]
+}

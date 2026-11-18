@@ -13,12 +13,32 @@
 
 import type { PromptPayload } from "./prompt-payload";
 
+/**
+ * The review-log seam handed to an annotator (mirroring {@link AuthorizerLog}).
+ *
+ * A model-backed annotator uses it to record a positive trail — did it run, did
+ * it reach the model, what did the model say, why did it fall back — in the same
+ * `pi-permission-system-permission-review.jsonl` the gate and the authorizer
+ * chain write to. `AnnotationRunner` forwards its own audit sink, wrapped so a
+ * broken log cannot reject an annotator's answer.
+ *
+ * Only `review`: the annotator has no debug stream of its own, and the runner's
+ * `warn` channel stays the runner's.
+ */
+export interface AnnotatorLog {
+  review(event: string, details?: Record<string, unknown>): void;
+}
+
 /** What an annotator is shown. */
 export interface AnnotatorInput {
   /** The complete payload the gate built (ADR 0011 §2); its annotations slot is empty. */
   readonly payload: PromptPayload;
   /** Aborted when the annotation deadline passes; an answer after that is discarded either way. */
   readonly signal: AbortSignal;
+  /** The gate's id for this ask — the key the review log joins on. */
+  readonly requestId: string;
+  /** Durable audit trail for this ask; see {@link AnnotatorLog}. */
+  readonly log: AnnotatorLog;
 }
 
 /**

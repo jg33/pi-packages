@@ -1,0 +1,79 @@
+{
+  "name": "@gotgenes/pi-permission-model-annotator",
+  "version": "0.1.0",
+  "description": "LLM-written summaries for permission prompts — a pi-permission-system prompt annotator",
+  "type": "module",
+  "imports": {
+    "#src/*": "./src/*",
+    "#test/*": "./test/*"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-coding-agent",
+    "permissions",
+    "annotator",
+    "model-annotator",
+    "summary"
+  ],
+  "author": {
+    "name": "Chris Lasher"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gotgenes/pi-packages.git",
+    "directory": "packages/pi-permission-model-annotator"
+  },
+  "bugs": {
+    "url": "https://github.com/gotgenes/pi-packages/issues"
+  },
+  "homepage": "https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-model-annotator#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "src",
+    "schemas",
+    "config/config.example.json",
+    "docs/*.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "gen:schema": "node --experimental-strip-types scripts/generate-schema.ts && biome format --write schemas/model-annotator.schema.json",
+    "lint:md": "rumdl check *.md docs/**/*.md",
+    "lint": "biome check . && eslint . && pnpm run lint:md"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": ">=0.84.3",
+    "@earendil-works/pi-coding-agent": ">=0.84.3",
+    "@gotgenes/pi-permission-system": ">=27.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@earendil-works/pi-ai": "1.0.0",
+    "@earendil-works/pi-coding-agent": "1.0.0",
+    "@gotgenes/pi-permission-system": "42.0.2",
+    "@types/node": "catalog:",
+    "rumdl": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  }
+}

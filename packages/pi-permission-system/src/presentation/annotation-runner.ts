@@ -10,7 +10,11 @@
  * output is a payload, never a verdict — nothing here imports or produces one.
  */
 
-import type { Annotator, AnnotatorLookup } from "./annotator-registry";
+import type {
+  Annotator,
+  AnnotatorLog,
+  AnnotatorLookup,
+} from "./annotator-registry";
 import {
   annotationSourceLabel,
   sanitizeAnnotationText,
@@ -152,6 +156,15 @@ export function unregisteredAnnotatorMessage(name: string): string {
 export class AnnotationRunner implements PayloadAnnotator {
   private readonly warned = new Set<string>();
 
+  /**
+   * The log seam every annotator receives. One shared object, bound to
+   * `record`, so an annotator's audit write fails exactly as the runner's own
+   * does: the prompt path loses a record, never an answer.
+   */
+  private readonly annotatorLog: AnnotatorLog = {
+    review: (event, details) => this.record(event, details ?? {}),
+  };
+
   constructor(private readonly deps: AnnotationRunnerDeps) {}
 
   async annotate(
@@ -263,7 +276,12 @@ export class AnnotationRunner implements PayloadAnnotator {
       // `request`/`evidence` identity (and `isRenderablePayload`) is unchanged.
       return toAnnotation(
         name,
-        await annotate({ payload: structuredClone(payload), signal }),
+        await annotate({
+          payload: structuredClone(payload),
+          signal,
+          requestId,
+          log: this.annotatorLog,
+        }),
       );
     } catch (error) {
       // Only the outcome that won the race is recorded (one per annotator per
