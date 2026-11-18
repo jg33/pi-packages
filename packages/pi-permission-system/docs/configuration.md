@@ -424,7 +424,8 @@ Four invariants govern it:
 
 An annotation is the first thing a row budget drops, ahead of the supporting evidence; the request's own facts are never dropped.
 An annotation is shown only in the prompt on the session that shows it.
-It is never sent to the agent, written to the review log, or broadcast on `permissions:ui_prompt`.
+It is never sent to the agent or broadcast on `permissions:ui_prompt`, and this package never writes the annotation text to the review log.
+An annotator may write its own audit entry through the `log` seam it is handed — metadata such as whether it reached a model and why it fell back — under its own event name.
 A subagent's forwarded ask is annotated by the session that serves it; annotations a child sends are discarded.
 
 ---

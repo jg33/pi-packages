@@ -42,6 +42,8 @@ async function answer(payload: PromptPayload): Promise<string | undefined> {
   const input: AnnotatorInput = {
     payload,
     signal: new AbortController().signal,
+    requestId: "req-test",
+    log: { review: () => undefined },
   };
   return await only.annotator(input);
 }

@@ -31,6 +31,7 @@ export type {
 export type {
   Annotator,
   AnnotatorInput,
+  AnnotatorLog,
 } from "#src/presentation/annotator-registry";
 
 /**

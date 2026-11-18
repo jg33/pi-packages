@@ -65,7 +65,9 @@ describe("an annotator has no verdict in its types", () => {
   });
 
   it("hands an annotator no decision callback and no authority state", () => {
-    expectTypeOf<keyof AnnotatorInput>().toEqualTypeOf<"payload" | "signal">();
+    expectTypeOf<keyof AnnotatorInput>().toEqualTypeOf<
+      "payload" | "signal" | "requestId" | "log"
+    >();
 
     const input = {} as AnnotatorInput;
     // @ts-expect-error -- nothing to call to rule on the ask
@@ -78,6 +80,8 @@ describe("an annotator has no verdict in its types", () => {
     input.payload = {} as PromptPayload;
     // @ts-expect-error -- so is the signal
     input.signal = new AbortController().signal;
+    // @ts-expect-error -- and the log is the runner's, not the annotator's to swap
+    input.log = { review: () => undefined };
   });
 
   it("can only yield a payload from the annotation path", () => {
