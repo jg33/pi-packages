@@ -136,6 +136,14 @@ export interface AuthorizerSelectionDeps {
   serving: TargetServingLookup;
   /** The forwarding timeout, read live so a config edit applies to the next ask. */
   getForwardingTimeoutMs: () => number;
+  /**
+   * The name this session last resolved for itself, read live.
+   *
+   * A forwarding context carries no system prompt, so a pi-subagents child's
+   * `<active_agent>` tag is unreachable at forward time; the session's own
+   * memory of the turn is the only source left (#PPB-7).
+   */
+  knownRequesterAgentName?: () => string | null;
   /** Writes this node's annotations into the payload a local prompt shows; threaded into `LocalUserAuthorizer`. */
   annotator: PayloadAnnotator;
   /** The operator's annotator deadline, read live; the terminal derives its containment ceiling from it. */
@@ -241,6 +249,7 @@ function buildParentAuthorizer(
     registry: deps.registry,
     serving: deps.serving,
     getTimeoutMs: deps.getForwardingTimeoutMs,
+    knownRequesterAgentName: deps.knownRequesterAgentName,
     logger: deps.logger,
   });
 }

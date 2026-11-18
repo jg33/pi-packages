@@ -186,6 +186,14 @@ export default function piPermissionSystemExtension(pi: ExtensionAPI): void {
     getForwardingTimeoutMs: () =>
       configStore.current().forwardingTimeoutMs ??
       PERMISSION_FORWARDING_TIMEOUT_MS,
+    // A forwarding context carries no system prompt, so the child's
+    // `<active_agent>` tag never reaches the forward. The session remembers the
+    // name agent prep resolved from the real prompt each turn; that memory is
+    // what keeps a forwarded ask from arriving as `subagent : unknown`.
+    // `session` is constructed below; the thunk first runs at activation.
+    knownRequesterAgentName: () =>
+      (session as PermissionSession | undefined)?.lastKnownActiveAgentName ??
+      null,
     logger,
     prompter,
     // The published service is the narrow, session-scoped PermissionQuery a

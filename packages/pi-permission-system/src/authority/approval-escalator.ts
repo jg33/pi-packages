@@ -106,6 +106,17 @@ export interface ParentAuthorizerDeps {
   serving: TargetServingLookup;
   /** How long to wait for the target's answer, read live so config edits apply. */
   getTimeoutMs: () => number;
+  /**
+   * The name this session last resolved for itself, read live.
+   *
+   * A forwarding context carries no system prompt (`ForwarderContext` is
+   * `hasUI`/`ui`/`cwd`/`sessionManager`), so the `<active_agent>` tag that is a
+   * pi-subagents child's only identity is unreachable from the forward. The
+   * agent prep handler resolves that tag from the real context on every turn
+   * and remembers it, and that memory is what this thunk reads — without it
+   * every forwarded ask reaches the human as `subagent : unknown`.
+   */
+  knownRequesterAgentName?: () => string | null;
   logger: DebugReviewLogger;
 }
 
@@ -189,6 +200,7 @@ export class ParentAuthorizer implements TerminalAuthorizer {
   private readonly registry: SubagentSessionRegistry | undefined;
   private readonly serving: TargetServingLookup;
   private readonly getTimeoutMs: () => number;
+  private readonly knownRequesterAgentName: (() => string | null) | undefined;
   private readonly logger: DebugReviewLogger;
 
   constructor(
@@ -199,6 +211,7 @@ export class ParentAuthorizer implements TerminalAuthorizer {
     this.registry = deps.registry;
     this.serving = deps.serving;
     this.getTimeoutMs = deps.getTimeoutMs;
+    this.knownRequesterAgentName = deps.knownRequesterAgentName;
     this.logger = deps.logger;
   }
 
@@ -367,6 +380,7 @@ export class ParentAuthorizer implements TerminalAuthorizer {
     const requesterAgentName =
       getActiveAgentName(ctx) ??
       getActiveAgentNameFromSystemPrompt(getContextSystemPrompt(ctx)) ??
+      this.knownRequesterAgentName?.() ??
       "unknown";
     // Complete the child-fixed facts into a full ForwardedAccessIntent: the
     // gate fixed the access facts; the edge stamps the requester identity it

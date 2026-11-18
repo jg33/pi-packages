@@ -95,7 +95,7 @@ describe("fullscreen dock paint — the options must survive the clip", () => {
     for (const rows of HEIGHTS) {
       const painted = paintedAt(rows, undefined);
       expect(
-        painted.some((line) => /\btool\s*:/.test(line)),
+        painted.some((line) => /\brequest\s*:/.test(line)),
         `rows=${rows}`,
       ).toBe(true);
     }

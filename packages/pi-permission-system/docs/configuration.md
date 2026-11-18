@@ -122,7 +122,7 @@ This clamp is deny-preserving and, like `yoloMode`, applied at composition; when
 | `toolTextSummaryMaxLength`  | —        | **Deprecated and ignored.** Superseded by `promptMaxRows` / `promptFieldMaxWidth`. Still accepted so an existing config is not rejected, but the value no longer applies; setting it logs a warning.                                         |
 | `piInfrastructureReadPaths` | `[]`     | Extra directories to auto-allow for reads, bypassing the `external_directory` gate. Supports `~`/`$HOME`/`${HOME}` expansion and wildcard patterns (`*`, `?`).                                                                               |
 | `authorizerChain`           | `[]`     | Ordered names of registered live-authority chain links to consult before the terminal authorizer (see [Authorizer chain](#authorizer-chain--case-by-case-decision-links)).                                                                   |
-| `annotatorChain`            | `[]`     | Ordered names of registered prompt annotators whose advisory text a permission prompt shows, labelled model-generated (see [Prompt annotations](#prompt-annotations)).                                                                       |
+| `annotatorChain`            | `[]`     | Ordered names of registered prompt annotators whose advisory text a permission prompt shows, each under its own short label (see [Prompt annotations](#prompt-annotations)).                                                                       |
 | `annotatorTimeoutMs`        | `1500`   | How long a prompt waits for its annotators before it is shown without the pending ones, in milliseconds (see [Prompt annotations](#prompt-annotations)).                                                                                     |
 
 Every array field (`promptNotifications`, `piInfrastructureReadPaths`, `authorizerChain`, `annotatorChain`, and a `commandEffects` entry's `effects` and `unlessOption` lists) accepts at most 1,000 entries.
@@ -397,7 +397,9 @@ For a complete working example, see [`@gotgenes/pi-permission-model-judge`](http
 ### Prompt annotations
 
 A downstream extension can register a **prompt annotator**: a function that sees the ask and returns a short piece of advisory text, such as a plain-language explanation of a command.
-The permission prompt shows that text under a `model-generated (<name>)` label, below the evidence, so it is never mistaken for a fact about the request.
+The permission prompt shows that text below the evidence, under a short label that says what kind of text it is: `Explanation` for a model summary, `jev` for an authorizer chain's verdict, and `model-generated (<name>)` for any other annotator, so it is never mistaken for a fact about the request.
+Two annotators ship with this package: `pending-command` (what the ask would run and why the prompt exists) and `jev-verdict` (the verdict pi-jev-auto-mode already wrote for this ask).
+Both are opt-in — name them in `annotatorChain`.
 
 `annotatorChain` is the ordered list of annotator names to consult:
 

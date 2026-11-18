@@ -190,6 +190,82 @@ describe("ParentAuthorizer provenance relay", () => {
   });
 });
 
+describe("ParentAuthorizer requester identity", () => {
+  /**
+   * A child's `<active_agent>` tag lives in its system prompt, and a
+   * `ForwarderContext` carries no system prompt — so the forward has to read
+   * the name the session already resolved for itself. Without that third
+   * source every forwarded ask reaches the human as `subagent : unknown`
+   * (#PPB-7).
+   */
+  test("names the requester from the session's remembered agent name", async () => {
+    const temp = createForwardingTempDir("parent-session");
+    try {
+      const authorizer = new ParentAuthorizer(
+        makeForwarderContext({ hasUI: false, sessionId: "child-session" }),
+        makeParentAuthorizerDeps({
+          forwardingDir: temp.forwardingDir,
+          registry: makeSubagentRegistry("child-session", {
+            parentSessionId: "parent-session",
+          }),
+          knownRequesterAgentName: () => "Explore",
+        }),
+      );
+      const decision = authorizer.authorize(
+        makePromptDetails({ requestId: "perm-child-request" }),
+      );
+      const request = await waitForRequestFile(temp.location.requestsDir);
+      writeFileSync(
+        join(temp.location.responsesDir, `${request.id}.json`),
+        JSON.stringify({
+          approved: true,
+          state: "approved",
+          responderSessionId: "parent-session",
+          decidedBy: { kind: "user", via: "dialog" },
+        }),
+        "utf-8",
+      );
+      await decision;
+      expect(request.requesterAgentName).toBe("Explore");
+    } finally {
+      temp.cleanup();
+    }
+  });
+
+  test("states `unknown` when neither the context nor the session names one", async () => {
+    const temp = createForwardingTempDir("parent-session");
+    try {
+      const authorizer = new ParentAuthorizer(
+        makeForwarderContext({ hasUI: false, sessionId: "child-session" }),
+        makeParentAuthorizerDeps({
+          forwardingDir: temp.forwardingDir,
+          registry: makeSubagentRegistry("child-session", {
+            parentSessionId: "parent-session",
+          }),
+        }),
+      );
+      const decision = authorizer.authorize(
+        makePromptDetails({ requestId: "perm-child-request" }),
+      );
+      const request = await waitForRequestFile(temp.location.requestsDir);
+      writeFileSync(
+        join(temp.location.responsesDir, `${request.id}.json`),
+        JSON.stringify({
+          approved: true,
+          state: "approved",
+          responderSessionId: "parent-session",
+          decidedBy: { kind: "user", via: "dialog" },
+        }),
+        "utf-8",
+      );
+      await decision;
+      expect(request.requesterAgentName).toBe("unknown");
+    } finally {
+      temp.cleanup();
+    }
+  });
+});
+
 describe("ParentAuthorizer", () => {
   test("writes a forwarded request carrying the display fields and resolves with the parent's response", async () => {
     const temp = createForwardingTempDir("parent-session");

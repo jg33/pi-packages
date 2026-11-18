@@ -213,8 +213,7 @@ describe("presentInlinePermissionPrompt", () => {
       },
     });
     const text = captured.component?.render(80).join("\n") ?? "";
-    expect(text).toContain("tool : read");
-    expect(text).toContain("path : /repo/secret.txt");
+    expect(text).toContain("request : read · /repo/secret.txt");
     expect(text).toContain("allow");
     expect(text).toContain("allow for all agents");
     expect(text).toContain("deny");
@@ -542,7 +541,7 @@ describe("presentInlinePermissionPrompt", () => {
 
       expect(custom).not.toHaveBeenCalled();
       expect(select).toHaveBeenCalledWith(
-        "Title\ntool : read\npath : /repo/secret.txt",
+        "Title\nrequest : read · /repo/secret.txt",
         expect.any(Array),
         { signal: undefined },
       );
@@ -815,12 +814,14 @@ describe("presentInlinePermissionPrompt", () => {
         makeAsk("/repo/a/very/long/secret.txt"),
       );
       const bounded = captured.component?.render(120) ?? [];
-      expect(bounded).toContain(" path : /repo/a/ve…");
+      expect(bounded).toContain(" request : read · /repo/a/ve…");
       expect(bounded.at(-1)).toContain("Ctrl+O for full request");
 
       captured.component?.handleInput(CTRL_O);
       const expanded = captured.component?.render(120) ?? [];
-      expect(expanded).toContain(" path : /repo/a/very/long/secret.txt");
+      expect(expanded).toContain(
+        " request : read · /repo/a/very/long/secret.txt",
+      );
       expect(expanded.at(-1)).toContain("Ctrl+O to collapse");
       // The host's own tool expansion still follows the same keystroke (#642).
       expect(setToolsExpanded).toHaveBeenCalledWith(true);

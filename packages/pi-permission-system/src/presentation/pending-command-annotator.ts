@@ -1,22 +1,32 @@
 /**
- * The built-in prompt annotator (asks-parity plan item 5, D3: an annotator,
- * not a new subsystem).
+ * The built-in prompt annotators (asks-parity plan item 5, D3: annotators, not
+ * a new subsystem).
  *
  * Registered once at composition through the existing `registerAnnotator`
- * surface; it runs only when the operator names `"pending-command"` in
- * `annotatorChain` (the opt-in activation model, as for every annotator).
+ * surface; each runs only when the operator names it in `annotatorChain` (the
+ * opt-in activation model, as for every annotator).
  *
- * Its answer is advisory text — what this ask would run and why the prompt
- * exists — plus the jev-auto-mode verdict the chain already wrote for this ask
- * when the captured trail carried one (D4: read from the existing authorizer
- * result, no new model call). The `Annotator` return type is the wall of
- * ADR 0011 §8: none of this can decide anything.
+ * Two names rather than one, because they answer different questions and the
+ * human reads them as different rows (#PPB-10):
+ *
+ * - `pending-command` — what this ask would run and why the prompt exists.
+ * - `jev-verdict` — the verdict the authorizer chain already wrote for this ask
+ *   (D4: read from the existing authorizer result, no new model call).
+ *
+ * Joined into one sentence the verdict trailed the explanation and read as part
+ * of it; as its own annotated row it is what it is — the chain's decision.
+ *
+ * The `Annotator` return type is the wall of ADR 0011 §8: none of this can
+ * decide anything.
  */
 import type { Annotator } from "./annotator-registry";
 import type { PromptPayload } from "./prompt-payload";
 
 /** The name the operator puts in `annotatorChain` to activate this annotator. */
 const NAME = "pending-command";
+
+/** The name that activates the chain-verdict annotator. */
+const VERDICT_NAME = "jev-verdict";
 
 /**
  * pi-jev-auto-mode's per-ask review event — its own literal, matched exactly.
@@ -34,11 +44,12 @@ interface AnnotatorRegistrationSurface {
   registerAnnotator(name: string, annotator: Annotator): () => void;
 }
 
-/** Register the one built-in annotator. Called once by the extension factory. */
+/** Register the built-in annotators. Called once by the extension factory. */
 export function registerPendingCommandAnnotator(
   surface: AnnotatorRegistrationSurface,
 ): void {
   surface.registerAnnotator(NAME, createPendingCommandAnnotator());
+  surface.registerAnnotator(VERDICT_NAME, createJevVerdictAnnotator());
 }
 
 function createPendingCommandAnnotator(): Annotator {
@@ -55,12 +66,12 @@ function createPendingCommandAnnotator(): Annotator {
         `rule "${request.matchedPattern}" matched on ${request.surface}`,
       );
     }
-    const verdict = jevVerdict(payload);
-    if (verdict !== undefined) {
-      parts.push(verdict);
-    }
     return parts.length === 0 ? undefined : parts.join("; ");
   };
+}
+
+function createJevVerdictAnnotator(): Annotator {
+  return ({ payload }) => jevVerdict(payload);
 }
 
 /**
@@ -83,6 +94,8 @@ function jevVerdict(payload: PromptPayload): string | undefined {
       : (status ?? source);
   const line = [judgement, rationale]
     .filter((part): part is string => part !== null)
-    .join(" — ");
-  return line === "" ? undefined : `jev-auto-mode: ${line}`;
+    .join(" — ")
+    .trim();
+  // A verdict with no words is no verdict: an empty row would read as a fault.
+  return line === "" ? undefined : line;
 }

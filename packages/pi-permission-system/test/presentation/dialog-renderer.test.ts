@@ -41,12 +41,7 @@ describe("renderPromptDialog", () => {
             matchedPattern: "*",
           }),
         }),
-      ).toEqual([
-        "agent   : scout",
-        "tool    : bash",
-        "rule    : *",
-        "command : cat /etc/hosts",
-      ]);
+      ).toEqual(["agent   : scout", "request : bash · * · cat /etc/hosts"]);
     });
 
     it("names the gate surface when it differs from the tool", () => {
@@ -60,12 +55,7 @@ describe("renderPromptDialog", () => {
             matchedPattern: "*",
           }),
         }),
-      ).toEqual([
-        "tool    : write",
-        "surface : external_directory",
-        "rule    : *",
-        "path    : /etc/hosts",
-      ]);
+      ).toEqual(["request : write · external_directory · * · /etc/hosts"]);
     });
 
     it("omits an agent line for an unnamed local requester, and a surface the value label already names", () => {
@@ -79,7 +69,7 @@ describe("renderPromptDialog", () => {
             matchedPattern: null,
           }),
         }),
-      ).toEqual(["tool : read", "path : /tmp/x"]);
+      ).toEqual(["request : read · /tmp/x"]);
     });
 
     it("names a directional path surface, which the value label no longer states", () => {
@@ -96,7 +86,7 @@ describe("renderPromptDialog", () => {
             matchedPattern: null,
           }),
         }),
-      ).toEqual(["tool    : read", "surface : path_read", "path    : /tmp/x"]);
+      ).toEqual(["request : read · path_read · /tmp/x"]);
     });
 
     it("omits the value line when the tool line already carries it", () => {
@@ -110,7 +100,7 @@ describe("renderPromptDialog", () => {
             matchedPattern: "*",
           }),
         }),
-      ).toEqual(["tool : fetch", "rule : *"]);
+      ).toEqual(["request : fetch · *"]);
     });
 
     it("labels an MCP ask's value as the target", () => {
@@ -125,9 +115,7 @@ describe("renderPromptDialog", () => {
           }),
         }),
       ).toEqual([
-        "tool   : mcp__github__create_issue",
-        "rule   : mcp__github__*",
-        "target : github:create_issue",
+        "request : mcp__github__create_issue · mcp__github__* · github:create_issue",
       ]);
     });
 
@@ -142,7 +130,7 @@ describe("renderPromptDialog", () => {
             matchedPattern: null,
           }),
         }),
-      ).toEqual(["skill : deploy"]);
+      ).toEqual(["request : deploy"]);
     });
 
     it("renders the executed unit of an unstrippable wrapper", () => {
@@ -158,9 +146,7 @@ describe("renderPromptDialog", () => {
           }),
         }),
       ).toEqual([
-        "tool    : bash",
-        "rule    : <indirection-bash-wrapper>",
-        "command : xargs grep foo",
+        "request : bash · <indirection-bash-wrapper> · xargs grep foo",
         "runs    : grep foo",
       ]);
     });
@@ -178,10 +164,8 @@ describe("renderPromptDialog", () => {
           }),
         }),
       ).toEqual([
-        "tool       : bash",
-        "rule       : rm /tmp/a/*",
+        "request    : bash · rm /tmp/a/* · rm a/x",
         "matched as : rm /tmp/a/x",
-        "command    : rm a/x",
       ]);
     });
 
@@ -198,9 +182,7 @@ describe("renderPromptDialog", () => {
           }),
         }),
       ).toEqual([
-        "tool    : bash",
-        "rule    : rm *",
-        "command : rm -rf /tmp/x",
+        "request : bash · rm * · rm -rf /tmp/x",
         "context : command substitution",
       ]);
     });
@@ -217,11 +199,7 @@ describe("renderPromptDialog", () => {
             matchedPattern: "*",
           }),
         }),
-      ).toEqual([
-        "tool    : bash (invoked as exec_command)",
-        "rule    : *",
-        "command : ls",
-      ]);
+      ).toEqual(["request : bash (invoked as exec_command) · * · ls"]);
     });
   });
 
@@ -245,10 +223,7 @@ describe("renderPromptDialog", () => {
 
     it("names the deciding path, its direction, and what would prove it", () => {
       expect(renderPromptDialog(unprovenEscape, WIDE).lines).toEqual([
-        "tool          : bash",
-        "surface       : external_directory",
-        "rule          : *",
-        "command       : git log /outside/x",
+        "request       : bash · external_directory · * · git log /outside/x",
         "why           : /outside/x: unproven, consults both directions; declare the command in commandEffects to classify it",
         "external path : /outside/x",
       ]);
@@ -271,24 +246,24 @@ describe("renderPromptDialog", () => {
           }),
         }),
       ).toEqual([
-        "tool    : bash",
-        "surface : path_read",
-        "rule    : *.env",
-        "path    : .env",
+        "request : bash · path_read · *.env · .env",
         "why     : read (pure-reader command)",
       ]);
     });
 
     it("keeps the line when the row budget drops the evidence", () => {
       const view = renderPromptDialog(unprovenEscape, {
-        maxRows: 3,
+        maxRows: 2,
         fieldMaxWidth: 400,
         width: 200,
       });
-      expect(view.lines).toContain(
+      // The label column is shared with the evidence the budget drops, so it
+      // stays as wide as the widest entry the ask carried.
+      expect(view.lines).toEqual([
+        "request       : bash · external_directory · * · git log /outside/x",
         "why           : /outside/x: unproven, consults both directions; declare the command in commandEffects to classify it",
-      );
-      expect(view.lines).not.toContain("external path : /outside/x");
+      ]);
+      expect(view.elided).toBe(true);
     });
   });
 
@@ -312,9 +287,7 @@ describe("renderPromptDialog", () => {
           ],
         }),
       ).toEqual([
-        "tool         : bash",
-        "rule         : rm *",
-        "command      : rm -rf build",
+        "request      : bash · rm * · rm -rf build",
         "full command : npm run clean && rm -rf build",
       ]);
     });
@@ -340,13 +313,9 @@ describe("renderPromptDialog", () => {
           ],
         }),
       ).toEqual([
-        "tool              : bash",
-        "surface           : external_directory",
-        "rule              : *",
-        "command           : cat /etc/hosts /tmp/x",
-        "working directory : /repo",
-        "external path     : /etc/hosts → /private/etc/hosts",
-        "external path     : /tmp/x",
+        "request       : bash · external_directory · * · cat /etc/hosts /tmp/x",
+        "external path : /etc/hosts → /private/etc/hosts",
+        "external path : /tmp/x",
       ]);
     });
 
@@ -368,7 +337,7 @@ describe("renderPromptDialog", () => {
             },
           ],
         }),
-      ).toEqual(["skill     : deploy", "read path : /skills/deploy/SKILL.md"]);
+      ).toEqual(["request   : deploy", "read path : /skills/deploy/SKILL.md"]);
     });
   });
 
@@ -403,11 +372,8 @@ describe("renderPromptDialog", () => {
         NARROW,
       );
 
-      expect(view.lines).toEqual([
-        "tool    : bash",
-        "rule    : *",
-        "command : echo the qui…",
-      ]);
+      // The value is what the cap narrows; the facets in front of it survive.
+      expect(view.lines).toEqual(["request : bash · * · echo the qui…"]);
       expect(view.elided).toBe(true);
     });
 
@@ -418,9 +384,7 @@ describe("renderPromptDialog", () => {
       );
 
       expect(view.lines).toEqual([
-        "tool         : bash",
-        "rule         : *",
-        "command      : echo hi",
+        "request      : bash · * · echo hi",
         "full command : echo hi && e…",
       ]);
       expect(view.elided).toBe(true);
@@ -432,7 +396,9 @@ describe("renderPromptDialog", () => {
         completeViewBudget(200),
       );
 
-      expect(view.lines).toContain("command : echo the quick brown fox");
+      expect(view.lines).toContain(
+        "request : bash · * · echo the quick brown fox",
+      );
       expect(view.elided).toBe(false);
     });
 
@@ -443,9 +409,7 @@ describe("renderPromptDialog", () => {
       );
 
       expect(view.lines).toEqual([
-        "tool    : bash",
-        "rule    : *",
-        "command : cat <<'EOF'",
+        "request : bash · * · cat <<'EOF'",
         "          first line",
         "          second line",
         "          EOF",
@@ -481,10 +445,10 @@ describe("renderPromptDialog", () => {
       });
 
       expect(view.lines).toEqual([
-        "tool  : fetch",
-        "rule  : *",
-        "input : entry 0",
-        "input : entry 1",
+        "request : fetch · *",
+        "input   : entry 0",
+        "input   : entry 1",
+        "input   : entry 2",
         "…",
       ]);
       expect(view.elided).toBe(true);
@@ -497,7 +461,7 @@ describe("renderPromptDialog", () => {
         width: 200,
       });
 
-      expect(view.lines).toHaveLength(4);
+      expect(view.lines).toHaveLength(3);
       expect(view.elided).toBe(false);
     });
 
@@ -523,16 +487,18 @@ describe("renderPromptDialog", () => {
           width: 200,
         }),
       ).toEqual({
-        lines: ["tool  : fetch", "rule  : *", `input : ${"a".repeat(60)}`],
+        lines: ["request : fetch · *", `input   : ${"a".repeat(60)}`],
         elided: false,
       });
 
       const wrapped = renderPromptDialog(payload, {
-        maxRows: 5,
+        maxRows: 4,
         fieldMaxWidth: 200,
         width: 20,
       });
-      expect(wrapped.lines).toEqual(["tool  : fetch", "rule  : *", "…"]);
+      // The same budget that admits the entry on one row refuses it at four, so
+      // the row count is a count of wrapped rows.
+      expect(wrapped.lines).toEqual(["request : fetch · *", "\u2026"]);
       expect(wrapped.elided).toBe(true);
     });
 
@@ -543,7 +509,7 @@ describe("renderPromptDialog", () => {
         width: 200,
       });
 
-      expect(view.lines).toEqual(["tool  : fetch", "rule  : *"]);
+      expect(view.lines).toEqual(["request : fetch · *"]);
       expect(view.elided).toBe(true);
     });
 
@@ -583,8 +549,7 @@ describe("renderPromptDialog", () => {
 
       expect(view.lines.length).toBeLessThanOrEqual(budget.maxRows);
       expect(view.lines[0]).toBe("subagent  : scout · session abc123");
-      expect(view.lines[1]).toBe("surface   : bash");
-      expect(view.lines[2]).toBe("command   : @'");
+      expect(view.lines[1]).toBe("request   : bash · @'");
       expect(view.elided).toBe(true);
     });
 
@@ -656,9 +621,7 @@ describe("renderPromptDialog", () => {
           mark,
         ).lines,
       ).toEqual([
-        "tool         : bash",
-        "rule         : *",
-        "command      : [ls]",
+        "request      : bash · * · [ls]",
         "full command : lsof | [ls] && /usr/bin/lsblk",
       ]);
     });
@@ -684,12 +647,8 @@ describe("renderPromptDialog", () => {
           mark,
         ).lines,
       ).toEqual([
-        "tool              : bash",
-        "surface           : external_directory",
-        "rule              : *",
-        "command           : cat [/etc/hosts] /etc/hostsbackup",
-        "working directory : /repo",
-        "external path     : [/etc/hosts]",
+        "request       : bash · external_directory · * · cat [/etc/hosts] /etc/hostsbackup",
+        "external path : [/etc/hosts]",
       ]);
     });
 
@@ -704,7 +663,7 @@ describe("renderPromptDialog", () => {
             matchedPattern: "*",
           }),
         }),
-      ).toEqual(["tool    : bash", "rule    : *", "command : ls"]);
+      ).toEqual(["request : bash · * · ls"]);
     });
   });
 
@@ -727,8 +686,7 @@ describe("renderPromptDialog", () => {
         }),
       ).toEqual([
         "subagent : scout · session abc123",
-        "surface  : bash",
-        "command  : cat /etc/hosts",
+        "request  : bash · cat /etc/hosts",
       ]);
     });
 
@@ -744,7 +702,7 @@ describe("renderPromptDialog", () => {
             matchedPattern: null,
           }),
         }),
-      ).toEqual(["subagent : unknown", "surface  : read", "value    : /tmp/x"]);
+      ).toEqual(["subagent : unknown", "request  : read · /tmp/x"]);
     });
   });
 
@@ -764,9 +722,7 @@ describe("renderPromptDialog", () => {
     /** What the ask renders today, with nothing in the annotations slot. */
     const WITHOUT_ANNOTATIONS = [
       "agent        : scout",
-      "tool         : bash",
-      "rule         : *",
-      "command      : cat /etc/hosts",
+      "request      : bash · * · cat /etc/hosts",
       "full command : git push --force",
     ];
 
@@ -806,7 +762,7 @@ describe("renderPromptDialog", () => {
         WIDE,
         (text) => `<${text}>`,
       );
-      expect(view.lines[3]).toBe("command      : <cat /etc/hosts>");
+      expect(view.lines[1]).toBe("request      : bash · * · <cat /etc/hosts>");
       expect(view.lines.at(-1)).toBe(
         "model-generated (echo) : runs cat /etc/hosts",
       );
@@ -818,7 +774,7 @@ describe("renderPromptDialog", () => {
           ...base,
           annotations: [modelGeneratedAnnotation("echo", "routine\npush")],
         }),
-        { maxRows: 6, fieldMaxWidth: 400, width: 200 },
+        { maxRows: 4, fieldMaxWidth: 400, width: 200 },
       );
       expect(view.lines).toEqual([...WITHOUT_ANNOTATIONS, "\u2026"]);
       expect(view.elided).toBe(true);
@@ -839,15 +795,14 @@ describe("renderPromptDialog", () => {
     });
 
     it("drops the annotation before the evidence when both contend", () => {
-      // At 7 rows the evidence still fits (core 4 + evidence 1), so a block
-      // order that dropped the advisory first would keep it and lose the
-      // evidence instead.
+      // At 4 rows the evidence still fits (core 2 + evidence 1), so a block
+      // order that kept the advisory and dropped the evidence would show here.
       const view = renderPromptDialog(
         makePromptPayload({
           ...base,
           annotations: [modelGeneratedAnnotation("echo", "one\ntwo\nthree")],
         }),
-        { maxRows: 7, fieldMaxWidth: 400, width: 200 },
+        { maxRows: 4, fieldMaxWidth: 400, width: 200 },
       );
       expect(view.lines).toEqual([...WITHOUT_ANNOTATIONS, "\u2026"]);
       expect(view.elided).toBe(true);
