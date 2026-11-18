@@ -197,8 +197,8 @@ importers:
         specifier: 1.0.0
         version: 1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.2.0)(zod@4.6.7)
       '@gotgenes/pi-permission-system':
-        specifier: 42.0.2
-        version: 42.0.2(@earendil-works/pi-coding-agent@1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.2.0)(zod@4.6.7))(@earendil-works/pi-tui@1.5.2)
+        specifier: workspace:*
+        version: link:../pi-permission-system
       '@types/node':
         specifier: 'catalog:'
         version: 22.19.19
@@ -1047,13 +1047,6 @@ packages:
 
   '@gotgenes/pi-permission-system@40.3.0':
     resolution: {integrity: sha512-B3iAs1YOnyUdeh66P40+YEJ0G3WBFsEpJAtXv/pY0CyhpIoErCoLBNKN2Sx9+Cg3VXmGMC1h/3T7r+b0d97oVg==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@earendil-works/pi-coding-agent': '>=1.0.0'
-      '@earendil-works/pi-tui': '>=1.0.0'
-
-  '@gotgenes/pi-permission-system@42.0.2':
-    resolution: {integrity: sha512-GCPZa4lPowE9MqwbDCLPApjIagq3v7RFDd6pRwHN75kiQ6Qc6Bt5NoycezuT7G+4Ab1m3TlYNBKMRcDt9poY+w==}
     engines: {node: '>=22'}
     peerDependencies:
       '@earendil-works/pi-coding-agent': '>=1.0.0'
@@ -3865,16 +3858,6 @@ snapshots:
     dependencies:
       '@earendil-works/pi-coding-agent': 1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.2.0)(zod@4.6.7)
       '@earendil-works/pi-tui': 1.0.0
-      tree-sitter-bash: 0.25.1
-      web-tree-sitter: 0.26.9
-      zod: 4.6.7
-    transitivePeerDependencies:
-      - tree-sitter
-
-  '@gotgenes/pi-permission-system@42.0.2(@earendil-works/pi-coding-agent@1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.2.0)(zod@4.6.7))(@earendil-works/pi-tui@1.5.2)':
-    dependencies:
-      '@earendil-works/pi-coding-agent': 1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.2.0)(zod@4.6.7)
-      '@earendil-works/pi-tui': 1.5.2
       tree-sitter-bash: 0.25.1
       web-tree-sitter: 0.26.9
       zod: 4.6.7

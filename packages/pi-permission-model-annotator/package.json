@@ -67,7 +67,7 @@
     "@biomejs/biome": "catalog:",
     "@earendil-works/pi-ai": "1.0.0",
     "@earendil-works/pi-coding-agent": "1.0.0",
-    "@gotgenes/pi-permission-system": "42.0.2",
+    "@gotgenes/pi-permission-system": "workspace:*",
     "@types/node": "catalog:",
     "rumdl": "catalog:",
     "typescript": "catalog:",
